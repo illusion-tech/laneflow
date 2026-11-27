@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-shared-static-network"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-27"
 summary = "定义从受检制品构建共享静态路网修订。"
 scope = "laneflow-static-network、受检 LFCA admission、共享静态路网构建、Traffic/Identity/Spatial 内存数据、Runtime 访问、宿主静态选路的合法转移查询与资源/性能验收"
 issues = ["https://github.com/illusion-tech/laneflow/issues/1539", "https://github.com/illusion-tech/laneflow/issues/1540"]
@@ -47,6 +47,10 @@ Adapter ────────────────────────
 ```
 
 不得让 `laneflow-static-network` 依赖 `laneflow-compiler`、Adapter 或文件系统。
+
+该包也拥有面向修订的进程内查询值。#1570 将车道与显式泊位的位姿来源
+`PoseSource` 定义在这一层，供 Runtime 返回、Spatial 接收。每辆车的来源由
+Runtime 按已提交状态产生。类型归属与待实施的接口见[位姿来源的归属][pose-source]。
 
 ## 3. 构建输入与 admission
 
@@ -778,6 +782,7 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 
 [shared-static-network-runtime]: #13-runtime-关系闭包
 [host-static-routing]: traffic-observation-and-routing-integration.md#host-static-routing
+[pose-source]: committed-pose-extraction.md#pose-source-ownership
 [portable-artifact-geometry]: portable-canonical-artifact.md#371-规范几何数值闭合
 [state-integrity]: traffic-runtime-state-integrity.md
 [station-bands]: cross-section-stationing-and-lateral-geometry.md#31-用变宽分隔带核对覆盖与邻接

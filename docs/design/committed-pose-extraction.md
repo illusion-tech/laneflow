@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-committed-pose-extraction"
 kind = "design"
 status = "accepted"
-revised_date = "2026-09-18"
+revised_date = "2026-11-27"
 summary = "定义已提交位姿来源借用、缓冲交换与按需提取。"
 scope = "Traffic Runtime 只读来源、Spatial 批量输出、Adapter 封闭提取与调用方表现选择"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/681", "https://github.com/illusion-tech/laneflow/issues/711", "https://github.com/illusion-tech/laneflow/issues/712"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/681", "https://github.com/illusion-tech/laneflow/issues/711", "https://github.com/illusion-tech/laneflow/issues/712", "https://github.com/illusion-tech/laneflow/issues/1570"]
 related = ["adr-0021", "design-adapter-api", "design-spatial-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-urban-demand-harness"]
 +++
 
@@ -31,9 +31,9 @@ Runtime 保持全部车辆的交通精度、固定步进、路权、状态与事
 
 本设计区分三件事：复用来源存储、取消成功批次的再次复制、按显式选择减少采样。
 三者可分别取证，不把其中一项的收益当作完整链路收益。停车位缓存不是首批交付要求。
-`committed_pose_sources()` 已由 #712 迁移为借用世界的惰性迭代器，Adapter
-全量封闭提取复用 Session 候选缓冲并在成功后交换提交；按显式选择减少采样仍是
-后续独立任务（#713），不为 1.0 前接口保留别名或兼容双轨。
+`committed_pose_sources()` 已由 #712 迁移为借用世界的惰性迭代器。Adapter 已有全量
+与按选择提取两个入口，均在采样成功后提交。#1570 规定这两个入口与 Spatial 之间
+传递的来源类型；目前 Runtime 与 Spatial 各自定义枚举，统一类型及调用方迁移待实施。
 
 ## 2. Runtime 只读来源
 
@@ -49,9 +49,59 @@ Runtime 保持全部车辆的交通精度、固定步进、路权、状态与事
 - 不存在或代际失效的句柄返回结构化错误，不静默省略，也不返回复用该槽的新车辆。
 - 两个读取入口共用一处生命周期/来源判定；不得让 Adapter 重写停车和道路规则。
 
-Iterator 与单项查询的最终 Rust 类型名由该实现任务冻结。删除当前仅为按值 Vec
-包装类型的 `CommittedPoseSourceBatch`，同时迁移全部调用点、测试和正式文档。Runtime
-不存 Adapter 缓冲，不改变快照、交通配置、执行配置或状态摘要。
+<a id="pose-source-ownership"></a>
+### 2.1 位姿来源的归属
+
+`laneflow_static_network::PoseSource` 是在一份共享路网修订中定位采样位置的值。
+静态路网包定义枚举，Runtime 和 Spatial 分别以 `pub use` 从各自的 crate 根公开
+同一 Rust 类型。
+
+```rust
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PoseSource {
+    Lane { edge: LaneEdgeOrdinal, progress_mm: u32 },
+    Parking { space: ParkingSpaceOrdinal },
+}
+```
+
+`edge` 与 `space` 使用静态契约包定义的修订内序号。Runtime 返回的
+`progress_mm` 是车辆在当前边上的已提交毫米进度，Spatial 在采样时按绑定根检查边、
+进度和几何。显式泊位按泊位序号读取该根上的入口锚点与几何。来源值按需产生，
+共享根中不保存每车来源，LFCA、快照和状态摘要也无需增加字段。
+
+Runtime 与 Spatial 已分别依赖静态路网包，两个消费端可沿现有依赖传值。由其中
+一端定义会要求另一端反向依赖它。静态契约包负责可跨编译与格式层解释的原语，
+这个采样地址只在进程内解释。[包依赖与职责][crate-boundary]
+
+Adapter 从全量或单句柄查询取得来源，为实际进入本批的车辆分配连续的
+`PoseRecordId`。跨包调用以这个最小宿主函数检验：
+
+```rust
+use laneflow_runtime::PoseSource;
+use laneflow_spatial::{PoseInput, PoseRecordId};
+
+fn input(record: PoseRecordId, source: PoseSource) -> PoseInput {
+    PoseInput::from_source(record, source)
+}
+```
+
+全量迭代器按 Runtime 的 `live_order` 产生有来源的车辆；选取时，Adapter 按
+调用方顺序查询句柄，遇到 `None` 即跳过。Adapter 保序维护句柄与批内记录的对应。
+来源值本身没有修订身份，另一修订上的同一序号可能恰好有效。封闭提取时先核对
+根对象并从活动世界读取，独立调用 Spatial 时由调用方保证序号属于其绑定根。旧批次的
+世代、修订和放置校验仍在原消费边界完成。
+
+**与车体参考姿态的衔接。** 处于不同横移阶段的车辆，即使当前边和进度相同，
+后轴参考点和车体三轴也可能不同。#1527 须从同一已提交状态取得车体参考姿态、
+路线出现和横移阶段，并绑定修订与规范坐标框架。单靠车道或泊位地址无法重建
+这份观测。观测入口及如何组合采样结果由 #1527 定义。世界世代和放置标记可以跨
+多个提交拍保持相同，不能单凭二者核实同拍。[车体参考姿态][traffic-reference-pose]
+
+**实现验收。** 用正常公共入口把实际车道和显式泊位来源原样传入 Spatial，对照
+期望的记录身份与规范位姿。按 §2、§4 及 §6 的矩阵核对 Runtime 全量与单句柄
+查询、Bevy 全量与选取结果，覆盖虚拟停车、行程完成、过期句柄、混框架失败后
+重试、同修订换根及旧批次拒绝。复用两侧缓冲暖机后的零新增分配检查，并核对
+默认与全特性的生产依赖图，确保无窗口 Runtime 可独立使用。
 
 ## 3. 全量封闭提取与缓冲所有权
 
@@ -195,7 +245,7 @@ Selected 的逐帧数量验证仍检查完整 live 状态/停车 binding，但�
 2. Runtime 借用来源与 Adapter 全量缓冲迁移（已由 #712 实施）：依赖本设计
    G1，使用同一来源原语，一次迁移所有调用方；验收稳态 source 分配消失、
    原有首错和全量输出等价（测量见固定提交中的 [#712 研究记录][borrowed-sources]）。
-3. Adapter 选取入口与产品式 harness：依赖第 2 项及本设计 G1；引入完整选择验证、
+3. Adapter 选取入口与产品式 harness（已由 #713 实施）：依赖第 2 项及本设计 G1；引入完整选择验证、
    失效语义与真实生命周期矩阵，保持全量验证模式。重新测量完整产品式链路。
 4. Parking pose 缓存：暂缓实施。须先在真实显式停车比例与多 Session 工作负载上
    比较冷/热收益、缓存内存和失效成本，再决定是否立项。
@@ -204,6 +254,8 @@ Selected 的逐帧数量验证仍检查完整 live 状态/停车 binding，但�
 记录在 GitHub；具体测量样例和局限见上述研究记录，不将微测量写成产品达标事实。
 
 [adapter-api]: adapter-api.md
+[crate-boundary]: ../adr/0020-compiler-owned-static-network-and-static-image.md
+[traffic-reference-pose]: cross-section-stationing-and-lateral-geometry.md#traffic-reference-pose
 [spatial-geometry]: spatial-geometry.md
 [shared-consumption]: traffic-runtime-shared-consumption.md
 [revision-cutover]: traffic-runtime-revision-cutover.md

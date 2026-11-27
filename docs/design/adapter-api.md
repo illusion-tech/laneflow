@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-adapter-api"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-25"
+revised_date = "2026-11-27"
 summary = "定义引擎适配器与运行时、空间层的接口边界。"
 scope = "交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.20 specialization 见 bevy-reference-adapter.md"
 applicability = "#applicability"
@@ -23,7 +23,7 @@ related = ["adr-0001", "adr-0012", "adr-0013", "adr-0015", "adr-0016", "adr-0020
 关联文档：
 
 - [`committed-pose-extraction.md`][committed-pose-extraction]：#681 来源缓冲、
-  成功批次交换与按需提取的已接受设计，已由 #711、#712 实施；全量与选择两种入口见 §6。
+  成功批次交换与按需提取的已接受设计，已由 #711、#712、#713 分别实施；全量与选择两种入口见 §6。
 
 - [`junction-observation-and-validation.md`][junction-observation]：#285
   领域观测与跨层验证；Accepted。阶段一新增两个只读补充入口：Runtime
@@ -119,12 +119,12 @@ Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `
 ## 4. 位姿输入与输出
 
 Adapter 从 `TrafficWorld::committed_pose_sources()` 读取稳定顺序的
-`(VehicleHandle, PoseSource)`，再映射为不透明 `PoseRecordId`（`u32`）。Spatial
-不接收 `VehicleHandle`，不遍历宿主实体组件系统（ECS），也不重新判断车辆生命周期。
-#534 起 Bevy 侧的 Runtime `PoseSource` → Spatial `PoseInput` 映射内化在
-`LaneFlowSession::extract_committed_pose_batch` 受控封闭路径内（记录身份 = 批内
-序号，与返回的车辆句柄序列对齐）；Adapter 不再公开独立的 `pose_input` 映射函数，
-宿主不得自行拼装位姿输入（语义与合同见 §9）。
+`(VehicleHandle, PoseSource)`，选取路径则按输入句柄查询。两条路径都为实际进入
+本批的车辆分配连续、不透明的 `PoseRecordId`（`u32`），并保留对应的句柄序列。
+Spatial 只接收批内身份与采样来源。#1570 统一类型后，Adapter 直接将后者传给
+`PoseInput::from_source`。Bevy 宿主通过选择句柄指定车辆，来源由 Session 从当前
+世界读取，宿主自建的 `PoseInput` 不能代替该读取。根配对与整批提交均在 Session 内完成（§9）。
+跨包类型及其与横移同拍观测的边界见[位姿来源的归属][pose-source]。
 
 ```text
 PoseInput {
@@ -354,5 +354,6 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
   的安全性由 schedule 配置保证。
 
 [committed-pose-extraction]: committed-pose-extraction.md
+[pose-source]: committed-pose-extraction.md#pose-source-ownership
 [junction-observation]: junction-observation-and-validation.md
 [issue-473]: https://github.com/illusion-tech/laneflow/issues/473
