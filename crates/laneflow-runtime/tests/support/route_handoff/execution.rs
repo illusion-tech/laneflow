@@ -360,16 +360,30 @@ fn reserved_dual_side_front_keeps_its_source_cursor_until_the_target_is_proven()
     let target = world
         .register_route(RouteRegisterInput::new(target_chain.to_vec()))
         .unwrap();
+    // 新车车头超出目标前杠上界两米，但它的车尾仍落在换道车已提交的目标侧占用内。
+    let other_front = dst.progress_mm[1] + 2_000;
+    let other_rear =
+        other_front.saturating_sub(world.vehicle(request.vehicle).unwrap().length_mm());
+    assert!(
+        view.footprint.sides[1]
+            .as_ref()
+            .unwrap()
+            .enclosure
+            .addresses()
+            .any(|a| a.edge == dst.edge
+                && other_rear < a.progress_mm[1]
+                && a.progress_mm[0] < other_front)
+    );
     let other_car = VehicleSpawnInput::new(
         conflict_profile(&revision, "car"),
         target,
         u32::try_from(index).unwrap(),
-        dst.progress_mm[1] + 2_000,
+        other_front,
         0,
     );
     assert_eq!(
         world.spawn_vehicle(other_car),
-        Err(laneflow_runtime::SpawnError::StopConstraintUnsatisfiable)
+        Err(laneflow_runtime::SpawnError::Overlap)
     );
     let bytes = encode_lfrs(&world.capture_snapshot().unwrap());
     let restored = restore_lfrs(
