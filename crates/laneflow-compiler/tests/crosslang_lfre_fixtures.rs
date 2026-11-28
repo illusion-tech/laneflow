@@ -1110,6 +1110,22 @@ fn published_mapping_projects_the_graded_bend_from_lfca_alone() {
                     assert!((lo..=hi).contains(&expected) && hi - lo <= 4);
                 } else {
                     assert_eq!([lo, hi], [0, 0]);
+                    for (station_mm, expected_edge) in [(60_300, b1), (60_302, b2)] {
+                        let StationQuery::Complete(found) = root
+                            .station_mapping()
+                            .at_station(corridor, station_mm, target)
+                        else {
+                            panic!("unresolved station {station_mm} mm, reverse={reverse}")
+                        };
+                        assert_eq!(
+                            found
+                                .addresses()
+                                .map(|address| address.edge)
+                                .collect::<Vec<_>>(),
+                            [expected_edge],
+                            "station {station_mm} mm, reverse={reverse}"
+                        );
+                    }
                 }
                 let StationQuery::Complete(ordinary) =
                     root.station_mapping().from_progress(a2, 1005, target)
@@ -1403,6 +1419,15 @@ fn partial_coextension_uses_each_corridors_local_domain() {
             );
             if origin != 53. {
                 assert_eq!(mapped.at_station(corridor, 0, b), StationQuery::Unavailable);
+                let adjacent_mm = if origin == 0. {
+                    domain.length_mm() - 1
+                } else {
+                    1
+                };
+                assert_eq!(
+                    mapped.at_station(corridor, adjacent_mm, b),
+                    StationQuery::Unavailable
+                );
                 assert_eq!(
                     mapped.from_progress(edge(key), 0, b),
                     StationQuery::Unavailable

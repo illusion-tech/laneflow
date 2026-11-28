@@ -37,9 +37,9 @@ applicability = "#applicability"
 **已实现**：正式来源经过编译和后发射检查，得到受检 LFCA，再构建共享修订。发布加载先验证 LFCP 绑定。
 
 - **条件与边界**：检查、绑定或资源限额失败时停在当前阶段。Runtime 不解析 JSON，也不直接安装 LFCA。
-  道路编辑来源和可移植对象各有自己的版本轴。P100 初始配置档的已知单次发射限额只描述该档
-  （[#1288][issue-1288]），不能当成所有档的最大路网规模。按容量推导限额仍是建议设计
-  （[#1296][issue-1296]）。本页不复制该数字，也不另立格式版本表。这不是容量或性能认证。
+  道路编辑来源和可移植对象各有自己的版本轴。编译配置档分别给出来源处理限额、规范路网容量和操作资源预算。
+  编译端和消费端按同一容量定义检查最终路网，可移植对象另受格式边界约束。旧 P100 初始配置档的单次发射限额
+  只适用于该历史配置（[#1288][issue-1288]）。资源合同见 [ADR 0035][compile-resources]，实施进度见 [#1296][issue-1296]。
   宿主须在安装、恢复或 Spatial 绑定之前认证共享修订，安装入口不代为执行；无窗口示例在安装前
   认证，只有 `Pass` 才继续（[源码接入指南][source-integration-attestation]）。
 - **依据**：[后发射检查 §4][post-emission-api]、
@@ -53,11 +53,11 @@ applicability = "#applicability"
 
 ### 车辆行为与路权
 
-**已实现**：固定步进下的道路机动车跟驰、固定时制信号，以及 Waiting 与 Conflict 的联合裁决。世界安装时绑定完整路权策略。
+**已实现**：固定步进下的道路机动车跟驰、停止目标提前制动、固定时制信号，以及 Waiting 与 Conflict 的联合裁决。世界安装时绑定完整路权策略。
 
-- **条件与边界**：生成和替换要满足路线后缀的静态准入和放置条件。停止约束仍可能在一拍内把速度收到零
-  （[#1272][issue-1272]）。感应信号和自适应信号不是当前能力。
-  舒适制动和物理平顺没有据此通过。
+- **条件与边界**：生成和替换要满足路线后缀的静态准入和放置条件。停止目标进入制动前视窗时若仍可紧急停车，
+  且目标持续有效、途中没有新增更紧约束，车辆可在线前停稳或到线零速。正常停车的单拍降速受车型紧急减速度、步长和速度量化容差约束。
+  约束突然出现时的几何投影、路线完成和停车到位等例外，见[整数几何 §5][motion-stop]。舒适制动和平顺性仍待验证。[提前制动验收范围][issue-1272]
 - **依据**：[路权策略 §3][right-of-way-signals]、
   [§5][right-of-way-binding]、
   [§6][right-of-way-lifecycle]；
@@ -185,7 +185,6 @@ applicability = "#applicability"
   [横断面与准入 §6.2][cross-section-access-target]、
   [§6.5][cross-section-access-runtime] 和
   [`hir/access.rs`][access-rs]。
-- 提前制动（[#1272][issue-1272]）的验收范围见对应 Issue。
 - 非机动车、行人、轨道执行域，感应或自适应信号，以及其他引擎的正式适配，都不是现行能力。`ParticipantClass` 只是准入分类，
   不表示这些执行域已经实现。
 - Routing 算法、出行需求、出发计划和最终表现由宿主拥有。LaneFlow 不提供专业交通工程分析。这是职责边界。
@@ -213,6 +212,7 @@ resource 均为未认证，城市 Routing 获授权豁免，LuST 五轴未验证
 [issue-1327]: https://github.com/illusion-tech/laneflow/issues/1327
 [issue-1329]: https://github.com/illusion-tech/laneflow/issues/1329
 [issue-1288]: https://github.com/illusion-tech/laneflow/issues/1288
+[compile-resources]: ../adr/0035-compile-limits-and-resource-ledger.md
 [issue-1296]: https://github.com/illusion-tech/laneflow/issues/1296
 [post-emission-api]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md#4-公共检查-api
 [post-emission-order]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md#5-检查顺序
@@ -222,6 +222,7 @@ resource 均为未认证，城市 Routing 获授权豁免，LuST 五轴未验证
 [portable-artifact]: ../design/portable-canonical-artifact.md
 [mod-rs]: ../../crates/laneflow-compiler/src/portable_publication/mod.rs
 [issue-1272]: https://github.com/illusion-tech/laneflow/issues/1272
+[motion-stop]: ../design/traffic-runtime-integer-geometry.md#5-一拍落地
 [right-of-way-signals]: ../design/traffic-runtime-right-of-way-policy.md#3-灯态解释与禁令
 [right-of-way-binding]: ../design/traffic-runtime-right-of-way-policy.md#5-世界和场景绑定
 [right-of-way-lifecycle]: ../design/traffic-runtime-right-of-way-policy.md#6-仲裁持久状态与生命周期
