@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-vehicle-following"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-26"
+revised_date = "2026-11-28"
 summary = "定义跟车、纵向控制、安全距离与投影。"
 scope = "Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收"
 applicability = "#applicability"
@@ -562,7 +562,11 @@ v_candidate = max(v_target, v_emergency_floor)
   提交速度都向零取整，替代 round-ties-to-even。量化只降低行程与速度，不改变 SI 三元组
   的制动分支；量化后速度为零时位移仍取 SI 三元组的行程，不重新解释为拍内停稳。
 
-由此本拍行程与拍末速度的停车距离之和不超过 `s_a`。前车不后退，下一拍的 `s_a` 不小于
+在紧急减速下界上，浮点积分可能在向零取整前就已高估行程。提交时用本拍整数行程和拍末整数速度再次核对
+`traffic-runtime-integer-geometry.md` §5.1 的停车判据。行程加上按紧急减速度计算、向上取整的停车距离，须落在扣除有效余数的跟车停车界内。
+常规候选越界时，与本拍的停止目标共同选取可行的终速和行程。只有真实停止目标可以触发到位。
+
+前车不后退，下一拍的 `s_a` 不小于
 本拍 `s_a` 减去本拍行程，跟车可行逐拍保持，与前车如何运动无关；整数位移不会使剩余
 间隙落入 1 mm 归零区，§11.3 的几何投影不触发。单拍速度降幅不超过 `b_f*dt` 加向零
 取整的 1 mm/s，由整数几何 §5 的 `ε_v` 覆盖。

@@ -10,11 +10,16 @@ pub const HOLD_TARGETS: usize = 2;
 /// 没有该类目标。
 pub const NO_HOLD_TARGET: u32 = u32::MAX;
 
+/// 本拍没有须保持的跟车停车界。
+pub const NO_FOLLOWER_ROOM: u64 = u64::MAX;
+
 /// 拍初已提交状态与 profile 档位。
 #[derive(Clone, Copy, Debug)]
 pub struct HoldState {
     pub speed_mm_s: u32,
     pub carry_um: u16,
+    /// 拍初跟车可行时扣除余数后的停车界；其余取 [`NO_FOLLOWER_ROOM`]。
+    pub feasible_follower_room_um: u64,
     pub comfort_decel: f32,
     pub emergency_decel: f32,
     /// 步长（ms）；合法步长为 `4..=1000`。
@@ -86,6 +91,44 @@ fn saturate(value: u128) -> u64 {
 #[must_use]
 pub fn stop_distance_um(speed_mm_s: u32, decel: f32) -> u64 {
     braking_distance_to_speed_um(speed_mm_s, 0, decel)
+}
+
+/// 过渡耗尽行按实际走完的硬空间清除余数。保留该边界允许、且仍停得进
+/// 拍末跟车停车界的最高速度。无跟车保持义务时沿用过渡的耗尽速度。
+#[must_use]
+pub fn follower_exhausted_speed(
+    cap_mm_s: u32,
+    start_speed_mm_s: u32,
+    emergency_decel: f32,
+    follower_room_um: u64,
+    start_carry_um: u16,
+    hard_room_mm: u32,
+) -> u32 {
+    if follower_room_um == NO_FOLLOWER_ROOM {
+        return cap_mm_s;
+    }
+    // 原始间距扣除容差后按整毫米计，余数小于 1 mm。饱和所得的零界
+    // 代表该整毫米空间已经为零，清除余数也不会产生可用行程。
+    let before_carry = if follower_room_um == 0 {
+        0
+    } else {
+        follower_room_um.saturating_add(u64::from(start_carry_um))
+    };
+    let remaining = before_carry.saturating_sub(u64::from(hard_room_mm) * 1_000);
+    let fits = |q| stop_distance_um(q, emergency_decel) <= remaining;
+    if fits(cap_mm_s) || stop_distance_um(start_speed_mm_s, emergency_decel) > follower_room_um {
+        return cap_mm_s;
+    }
+    let (mut low, mut high) = (0, cap_mm_s);
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if fits(mid) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    low
 }
 
 /// 按 `decel` 的精确二进制值匀减速，从 `from_mm_s` 降到 `limit_mm_s` 所需的行程，
@@ -186,18 +229,23 @@ struct Obligation {
     decel: f32,
 }
 
-/// 远离全部目标时的快速放行：`1000·D` 明显大于常规行程、最大余数与
-/// 舒适停车距离之和时，舒适档成立、不在差带且常规候选通过，结果不变。
+/// 目标距离大于所有候选行程、最大余数与该档位的停车距离之和时跳过精确求解。
 fn clearly_clear(
-    distance_mm: u32,
+    distance_um: u64,
     state: &HoldState,
     regular_speed_mm_s: u32,
     regular_travel_um: u64,
+    decel: f32,
 ) -> bool {
     let fastest = f64::from(state.speed_mm_s.max(regular_speed_mm_s));
-    let comfort_stop = fastest * fastest / (2.0 * f64::from(state.comfort_decel));
-    let bound = regular_travel_um as f64 + 1_000.0 + comfort_stop * (1.0 + 1e-12) + 2.0;
-    bound.is_finite() && f64::from(distance_mm) * 1_000.0 > bound
+    let stop = fastest * fastest / (2.0 * f64::from(decel));
+    // 其它目标也可能把常规浮点行程改为收紧候选。上界覆盖所有候选的
+    // 最大梯形、拍内停稳和静止末端到位，以及拍初余数。
+    let upper = (u64::from(state.speed_mm_s) + u64::from(regular_speed_mm_s)).max(1)
+        * u64::from(state.delta_ms)
+        / 2;
+    let bound = regular_travel_um.max(upper) as f64 + 1_000.0 + stop * (1.0 + 1e-12) + 2.0;
+    bound.is_finite() && distance_um as f64 > bound
 }
 
 /// 整数几何 §5.1：按拍初状态取保持档位、清除差带余数，核验常规候选；
@@ -222,13 +270,19 @@ pub fn hold_stop_feasibility(
     let speed = state.speed_mm_s;
     // 精确停车距离延迟到出现未被快速放行的目标时才求值。
     let mut stops: Option<(u64, u64)> = None;
-    let mut obligations = [None; HOLD_TARGETS];
+    let mut obligations = [None; HOLD_TARGETS + 1];
     let mut carry = state.carry_um;
     let mut strict = state.comfort_decel;
     for (slot, &distance_mm) in obligations.iter_mut().zip(targets.iter()) {
         if distance_mm == NO_HOLD_TARGET
             || distance_mm == 0
-            || clearly_clear(distance_mm, state, regular_speed_mm_s, regular_travel_um)
+            || clearly_clear(
+                u64::from(distance_mm) * 1_000,
+                state,
+                regular_speed_mm_s,
+                regular_travel_um,
+                state.comfort_decel,
+            )
         {
             continue;
         }
@@ -255,10 +309,36 @@ pub fn hold_stop_feasibility(
         }
         *slot = Some(Obligation { distance_um, decel });
     }
+    // 跟车下界可抬回浮点安全速度。量化后用整数停车界核验行程与余速，
+    // 与同时存在的停止目标共同选择可行候选。有限输入仍须在拍初可行，
+    // 才能使用收紧候选的存在性证明。前车的间距本身没有到位事件。
+    let follower_room = state.feasible_follower_room_um;
+    if follower_room != NO_FOLLOWER_ROOM
+        && !clearly_clear(
+            follower_room,
+            state,
+            regular_speed_mm_s,
+            regular_travel_um,
+            state.emergency_decel,
+        )
+        && stop_distance_um(speed, state.emergency_decel) <= follower_room
+    {
+        obligations[HOLD_TARGETS] = Some(Obligation {
+            distance_um: follower_room.saturating_add(u64::from(state.carry_um)),
+            decel: state.emergency_decel,
+        });
+        strict = strict.max(state.emergency_decel);
+    }
     if obligations.iter().all(Option::is_none) {
         return None;
     }
     let budget = |obligation: &Obligation| obligation.distance_um - u64::from(carry);
+    let arrives_at_stop = |travel_um| {
+        obligations[..HOLD_TARGETS]
+            .iter()
+            .flatten()
+            .any(|obligation| travel_um == budget(obligation))
+    };
     let feasible = |speed_mm_s: u32, travel_um: u64| {
         obligations.iter().flatten().all(|obligation| {
             travel_um
@@ -268,12 +348,8 @@ pub fn hold_stop_feasibility(
     };
     if feasible(regular_speed_mm_s, regular_travel_um) {
         // 常规候选本身零速恰好到达负保持义务的目标时，数值无需改写，
-        // 但到位必须交给完成阶段，使到位零速优先于过渡耗尽速度。
-        let arrives = regular_speed_mm_s == 0
-            && obligations
-                .iter()
-                .flatten()
-                .any(|obligation| regular_travel_um == budget(obligation));
+        // 但到位必须交给完成阶段，使到位零速优先于耗尽速度上限。
+        let arrives = regular_speed_mm_s == 0 && arrives_at_stop(regular_travel_um);
         return (arrives || carry != state.carry_um).then_some(HoldCommit {
             carry_um: carry,
             speed_mm_s: regular_speed_mm_s,
@@ -331,21 +407,21 @@ pub fn hold_stop_feasibility(
     if speed > 0 {
         // 实际行程 s = min(R, V·Δt/2)，z = ⌊s⌋；R ≤ V·Δt/2 时恰好到位。
         let half = u64::from(speed) * delta;
-        let arrives = nearest * 2 <= half;
+        let travel_um = nearest.min(half / 2);
         return Some(HoldCommit {
             carry_um: carry,
             speed_mm_s: 0,
-            travel_um: if arrives { nearest } else { half / 2 },
-            arrives,
+            travel_um,
+            arrives: arrives_at_stop(travel_um),
             kind: HoldKind::InTickStop,
         });
     }
-    let arrives = nearest <= delta / 2;
+    let travel_um = if nearest <= delta / 2 { nearest } else { 0 };
     Some(HoldCommit {
         carry_um: carry,
         speed_mm_s: 0,
-        travel_um: if arrives { nearest } else { 0 },
-        arrives,
+        travel_um,
+        arrives: arrives_at_stop(travel_um),
         kind: HoldKind::Static,
     })
 }
@@ -358,6 +434,7 @@ mod tests {
         HoldState {
             speed_mm_s: speed,
             carry_um: carry,
+            feasible_follower_room_um: NO_FOLLOWER_ROOM,
             comfort_decel: comfort,
             emergency_decel: emergency,
             delta_ms,
@@ -509,6 +586,33 @@ mod tests {
                 125_000
             ),
             None
+        );
+    }
+
+    #[test]
+    fn follower_boundary_only_reports_arrival_for_a_coincident_stop_target() {
+        let initial = HoldState {
+            feasible_follower_room_um: 1_250,
+            ..state(100, 750, 2.0, 4.0, 100)
+        };
+        // 收紧过大的梯形行程后，只有同距的停止目标负有到位义务。
+        for (target, arrives) in [(NO_HOLD_TARGET, false), (2, true), (5, false)] {
+            let held = hold_stop_feasibility(&initial, [target, NO_HOLD_TARGET], 0, 5_000).unwrap();
+            assert_eq!(
+                (held.speed_mm_s, held.travel_um, held.arrives),
+                (0, 1_250, arrives)
+            );
+        }
+        let initial = HoldState {
+            feasible_follower_room_um: 125_000,
+            ..state(1_000, 400, 2.0, 4.0, 500)
+        };
+        // 停止目标清除差带的 400 µm 余数，跟车可用空间随之增加。
+        let held = hold_stop_feasibility(&initial, [250, NO_HOLD_TARGET], 0, 125_100).unwrap();
+        assert_eq!(held.kind, HoldKind::Regular);
+        assert_eq!(
+            (held.carry_um, held.travel_um, held.arrives),
+            (0, 125_100, false)
         );
     }
 

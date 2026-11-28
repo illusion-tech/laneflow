@@ -6,8 +6,9 @@ mod projection;
 #[cfg(target_arch = "x86_64")]
 mod x86;
 pub use hold::{
-    HOLD_TARGETS, HoldCommit, HoldKind, HoldState, NO_HOLD_TARGET, braking_distance_to_speed_um,
-    delta_ms, hold_stop_feasibility, stop_distance_um,
+    HOLD_TARGETS, HoldCommit, HoldKind, HoldState, NO_FOLLOWER_ROOM, NO_HOLD_TARGET,
+    braking_distance_to_speed_um, delta_ms, follower_exhausted_speed, hold_stop_feasibility,
+    stop_distance_um,
 };
 pub use projection::{
     BoundaryInput, BoundaryOutput, LimitInput, LimitOutput, max_next_speed_for_decel,
@@ -157,7 +158,7 @@ pub struct Input<'a> {
     /// 仅在硬空间耗尽时叠加到投影速度的上限；零表示停稳。
     pub exhausted_speed_cap_mm_s: &'a [u32],
     /// 耗尽拍速度由耗尽上界直接主导（过渡预约的舒适衰减），不与候选投影
-    /// 取 min。只在完成阶段消费，不参与候选形成（#1272 F3' 复审修）。
+    /// 取 min。跟车可行时仍须停得进拍末跟车停车界。只在完成阶段消费。
     pub exhausted_cap_dominates: &'a [bool],
     pub committed_limit_mm_s: &'a [u32],
     pub leader_m: &'a [f32],
@@ -166,8 +167,9 @@ pub struct Input<'a> {
     pub leader_speed_m_s: &'a [f32],
     /// vehicle-following §10.2 整数停车界（米，已含安全方向收缩）；无前车为 `+∞`。
     pub safe_room_m: &'a [f32],
-    /// 本拍开始时有前车且跟车可行：行程微米与已提交速度向零取整（整数几何 §5）。
-    pub safe_quantize: &'a [bool],
+    /// 拍初跟车可行的整数停车界（已扣除余数，µm）。这些行向零量化并保持停车界。
+    /// 其余行取 [`NO_FOLLOWER_ROOM`]。
+    pub feasible_follower_room_um: &'a [u64],
     pub min_gap_m: &'a [f32],
     pub time_headway: &'a [f32],
     pub max_accel: &'a [f32],
@@ -531,7 +533,7 @@ impl Kernel {
             input.has_leader.len(),
             input.leader_speed_m_s.len(),
             input.safe_room_m.len(),
-            input.safe_quantize.len(),
+            input.feasible_follower_room_um.len(),
             input.min_gap_m.len(),
             input.time_headway.len(),
             input.max_accel.len(),
@@ -848,7 +850,7 @@ fn scalar_row<const TRACK: bool>(
             .as_ref()
             .expect("quantization follows a float barrier");
         let (rounded_um, rounded_speed) = quantize_row(
-            input.safe_quantize[row],
+            input.feasible_follower_room_um[row] != NO_FOLLOWER_ROOM,
             floats.travel_m[row],
             floats.proposal_speed_m_s[row],
         );
@@ -1001,7 +1003,11 @@ fn scalar_row<const TRACK: bool>(
             raw_valid(input, row, delta_s, raw_travel, raw_speed) && travel.is_finite();
         return;
     }
-    let (rounded_um, rounded_speed) = quantize_row(input.safe_quantize[row], travel, raw_speed);
+    let (rounded_um, rounded_speed) = quantize_row(
+        input.feasible_follower_room_um[row] != NO_FOLLOWER_ROOM,
+        travel,
+        raw_speed,
+    );
     let valid = motion_values_valid(input, row, delta_s, raw_travel, raw_speed, travel);
     finish_values(
         input,
@@ -1066,7 +1072,8 @@ fn hold_for_row(
     rounded_speed: f64,
 ) -> Option<HoldCommit> {
     let targets = [input.stop_mm[row], input.route_end_mm[row]];
-    if targets.iter().all(|&target| target == NO_HOLD_TARGET)
+    if (targets.iter().all(|&target| target == NO_HOLD_TARGET)
+        && input.feasible_follower_room_um[row] == NO_FOLLOWER_ROOM)
         || input.hard_room_mm[row] == 0
         || !(rounded_um.is_finite() && rounded_um >= 0.0 && rounded_um <= u64::MAX as f64)
         || !(rounded_speed.is_finite()
@@ -1079,6 +1086,7 @@ fn hold_for_row(
         &HoldState {
             speed_mm_s: input.speed_mm_s[row],
             carry_um: input.carry_um[row],
+            feasible_follower_room_um: input.feasible_follower_room_um[row],
             comfort_decel: input.comfort_decel[row],
             emergency_decel: input.emergency_decel[row],
             delta_ms: delta_ms(delta_s),
@@ -1148,16 +1156,25 @@ fn finish_held(
     // 不与候选紧急投影取 min——r_p5 钉版 550 而非 100）；其余停止源维持
     // min(投影, 耗尽上界)。本列只在完成阶段消费，不影响候选形成。
     // 保持义务下的到线优先于其余正常行：零速（整数几何 §5.1）。
-    let exhausted_speed = if hold.is_some_and(|commit| commit.arrives) {
-        0
-    } else if input.exhausted_cap_dominates[row] {
-        input.exhausted_speed_cap_mm_s[row].min(input.committed_limit_mm_s[row])
-    } else {
-        projected_speed.min(input.exhausted_speed_cap_mm_s[row])
+    let exhausted_speed = || {
+        if hold.is_some_and(|commit| commit.arrives) {
+            0
+        } else if input.exhausted_cap_dominates[row] {
+            follower_exhausted_speed(
+                input.exhausted_speed_cap_mm_s[row].min(input.committed_limit_mm_s[row]),
+                input.speed_mm_s[row],
+                input.emergency_decel[row],
+                input.feasible_follower_room_um[row],
+                input.carry_um[row],
+                room,
+            )
+        } else {
+            projected_speed.min(input.exhausted_speed_cap_mm_s[row])
+        }
     };
     if room == 0 {
         output.travel_mm[row] = 0;
-        output.speed_mm_s[row] = exhausted_speed;
+        output.speed_mm_s[row] = exhausted_speed();
         output.carry_um[row] = 0;
         output.progress_mm[row] = input.progress_mm[row];
         output.exhausted[row] = true;
@@ -1176,7 +1193,7 @@ fn finish_held(
     output.travel_mm[row] = travel_mm;
     output.progress_mm[row] = input.progress_mm[row].saturating_add(travel_mm);
     output.speed_mm_s[row] = if exhausted {
-        exhausted_speed
+        exhausted_speed()
     } else {
         projected_speed
     };

@@ -10712,6 +10712,62 @@ fn add_signalized_corridor(
 }
 
 #[test]
+fn following_at_the_emergency_floor_preserves_the_committed_stop_distance() {
+    let revision = compile_revision(|module| {
+        add_standard_profiles(module);
+        add_signalized_corridor(module, 2_000, SignalAspect::Red);
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "approach",
+                length_meters: 200.0,
+                speed_limit_meters_per_second: 40.0,
+                successors: &[LaneEdgeReference::local("entry")],
+            })
+            .expect("approach to stopped traffic");
+    });
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 2,
+        route_capacity: 1,
+        route_edge_occurrence_capacity: 4,
+        route_conflict_occurrence_capacity: 0,
+        fixed_delta_time_ms: 1_000,
+    })
+    .expect("one-second step");
+    let mut world = install_fixture(revision, config).expect("install");
+    let route = register_named(&mut world, &["approach", "entry", "middle", "exit"]);
+    let profile = VehicleProfileOrdinal::from_raw(0);
+    let leader = world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 1, 10_000, 0).with_open_entrance())
+        .expect("leader stopped at red");
+    // 紧急减速度 4.5 m/s²，33.9 m/s 的停车距离为 127,690 mm。
+    // 两车前杠间还要容纳 4,500 mm 车身、2,000 mm 最小间距和 1 mm 容差。
+    let protected_mm = 4_500 + 2_000 + 1;
+    let follower_at_mm = 200_000 + 10_000 - protected_mm - 127_690;
+    let follower = world
+        .spawn_vehicle(
+            VehicleSpawnInput::new(profile, route, 0, follower_at_mm, 33_900).with_open_entrance(),
+        )
+        .expect("follower exactly at the emergency stopping boundary");
+    world.step(TickInput::new(1_000)).expect("formal step");
+    let front = world.vehicle(leader).expect("leader");
+    let rear = world.vehicle(follower).expect("follower");
+    assert_eq!(
+        (
+            front.route_edge_index(),
+            front.progress_mm(),
+            front.carry_um(),
+            front.speed_mm_s()
+        ),
+        (1, 10_000, 0, 0)
+    );
+    assert_eq!((rear.route_edge_index(), rear.speed_mm_s()), (0, 29_400));
+    let room_mm = (200_000 - rear.progress_mm()) + front.progress_mm() - protected_mm;
+    let room_um = u64::from(room_mm) * 1_000 - u64::from(rear.carry_um());
+    let speed = u64::from(rear.speed_mm_s());
+    assert_eq!(room_um, (speed * speed).div_ceil(9));
+}
+
+#[test]
 fn install_rejects_phase_shorter_than_tick() {
     let revision = compile_revision(|module| {
         add_standard_profiles(module);
