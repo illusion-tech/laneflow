@@ -3,6 +3,7 @@ use laneflow_static_contract::{
     AuthoringLaneOrdinal, CanonicalFrameOrdinal, NetworkRevisionId, RoadCorridorOrdinal,
 };
 
+use super::{NM_PER_MM, enclosing_mm};
 use crate::SharedNetworkRevision;
 use footprint::Coverage;
 use interval::Interval;
@@ -21,10 +22,11 @@ mod steering;
 mod surface;
 mod sweep;
 pub use handoff::{
-    HandoffBinding, HandoffBodyReport, HandoffBodySide, HandoffFootprint, HandoffFootprintReport,
-    HandoffLaneSide, HandoffOutcome, HandoffQuery, HandoffReport, HandoffSideFootprint,
-    HandoffSourceEvidence, HandoffSourceModule, HandoffSweepReport, HandoffTravelBounds,
-    HandoffTravelReport, HandoffTravelTarget, HandoffWindow,
+    HandoffBinding, HandoffBodyReport, HandoffBodySide, HandoffDistanceBounds, HandoffFootprint,
+    HandoffFootprintReport, HandoffLaneSide, HandoffOutcome, HandoffQuery, HandoffReport,
+    HandoffSideFootprint, HandoffSourceEvidence, HandoffSourceModule, HandoffStationRange,
+    HandoffSweepReport, HandoffTravelBounds, HandoffTravelReport, HandoffTravelTarget,
+    HandoffWindow,
 };
 pub use sweep::{
     BodyEnvelope, BoundaryHit, Clearance, GeometryReport, GeometryWorkLimits, SideClearanceReport,
@@ -56,8 +58,8 @@ pub struct RearAxleLine {
     pub start_xz_m: [f64; 2],
     /// 沿行驶方向的非零水平向量，由查询归一化。
     pub heading_xz: [f64; 2],
-    /// 后轴沿该水平直线行进的长度，单位纳米。
-    pub length_nm: u64,
+    /// 后轴沿该水平直线行进的长度，单位毫米。
+    pub length_mm: u64,
 }
 
 /// 单条候选的绑定、车型和路幅输入。
@@ -69,8 +71,8 @@ pub struct TrackQuery<'a> {
     pub corridor: RoadCorridorOrdinal,
     /// 候选的规范坐标框架。
     pub frame: CanonicalFrameOrdinal,
-    /// 允许求高和投影的走廊局部站位窗口，递增，单位纳米。
-    pub station_window_nm: [u64; 2],
+    /// 允许求高和投影的走廊局部站位窗口，递增，单位毫米。
+    pub station_window_mm: [u64; 2],
     /// 调用方根据车型和通行权选定的车道，按走廊结构从左到右排列。
     pub traversable_lanes: &'a [AuthoringLaneOrdinal],
     /// 刚性两轴车型。
@@ -162,22 +164,22 @@ pub enum TrackOutcome {
         wheel: Wheel,
         /// 违反的车型条件。
         constraint: SteeringConstraint,
-        /// 沿候选参数自起点量起的见证位置，单位纳米。
-        at_nm: u64,
+        /// 沿候选参数自起点量起的见证位置，单位毫米。
+        at_mm: [u64; 2],
     },
     /// 指定部位在给定后轴水平行程处确定越出可用路幅。
     Outside {
-        /// 与可用路幅并集的横向距离下界（米）。该并集为空时返回空。
-        overrun_lower_m: Option<f64>,
+        /// 与可用路幅并集的横向距离下界（毫米）。该并集为空时返回空。
+        overrun_lower_mm: Option<u32>,
         /// 车轮。
         wheel: Wheel,
-        /// 从候选起点量起的见证行程，单位纳米。
-        at_nm: u64,
+        /// 从候选起点量起的见证行程，单位毫米。
+        at_mm: [u64; 2],
     },
     /// 缺少有效绑定、输入或足以判定的证据。
     Unproven {
-        /// 首个未证后轴水平行程区间，单位纳米。
-        range_nm: [u64; 2],
+        /// 首个未证后轴水平行程区间，单位毫米。
+        range_mm: [u64; 2],
         /// 停止原因。
         reason: Failure,
     },
@@ -188,12 +190,29 @@ pub enum TrackOutcome {
 pub struct TrackReport {
     /// 所查候选的裁决。
     pub outcome: TrackOutcome,
-    /// 从起点开始已经连续证明覆盖的水平行程，单位纳米。
-    pub covered_prefix_nm: u64,
+    /// 从起点开始已经连续证明覆盖的水平行程，单位毫米。
+    pub covered_prefix_mm: u64,
     /// 从索引入口开始的逻辑工作数。
     pub work: u32,
     /// 因预算耗尽而未能完成检查的行程后缀。
-    pub unchecked_nm: Option<[u64; 2]>,
+    pub unchecked_mm: Option<[u64; 2]>,
+}
+
+fn mm_to_nm(mm: u64) -> Result<u64, Failure> {
+    mm.checked_mul(NM_PER_MM).ok_or(Failure::InvalidInput)
+}
+
+// FMA 保留乘法余数，避免恰好向上舍入到整数时高估净空。
+fn lower_mm(metres: f64) -> u32 {
+    if !(metres.is_finite() && metres > 0.) {
+        return 0;
+    }
+    let mm = (metres * 1_000.) as u32;
+    if metres.mul_add(1_000., -f64::from(mm)) < 0. {
+        mm.saturating_sub(1)
+    } else {
+        mm
+    }
 }
 
 struct Work {
@@ -242,6 +261,7 @@ struct Candidate<'a, 'q> {
     surface: Surface<'a>,
     all_surface: &'a [crate::RoadSurfaceSpan],
     trace: Path,
+    trace_length_nm: u64,
     origin: Interval,
     length: Interval,
     covered: Option<PoseBounds>,
@@ -259,7 +279,9 @@ impl<'a, 'q> Candidate<'a, 'q> {
             return Err(Failure::Binding);
         }
         let axle = query.axles;
-        let window = query.station_window_nm;
+        let [start, end] = query.station_window_mm;
+        let window = [mm_to_nm(start)?, mm_to_nm(end)?];
+        let trace_length_nm = mm_to_nm(query.trace.length_mm())?;
         if !axle.wheelbase_m.is_finite()
             || axle.wheelbase_m <= 0.
             || !axle.half_track_m.is_finite()
@@ -275,7 +297,7 @@ impl<'a, 'q> Candidate<'a, 'q> {
         let domain = mapping
             .corridor_domain(query.corridor)
             .ok_or(Failure::Unavailable)?;
-        if window[1] > domain.length_nm {
+        if window[1] > domain.length_nm() {
             return Err(Failure::InvalidInput);
         }
         let first = partition(&mapping.surface, |r| r.corridor < query.corridor, work)?;
@@ -292,19 +314,20 @@ impl<'a, 'q> Candidate<'a, 'q> {
         }
         work.charge()?;
         let high = rows.last().ok_or(Failure::Unavailable)?;
-        let origin = Interval::ZERO.with_error(Interval::meters(u64::from(low.stations[0].1)).hi);
-        let end = Interval::meters(domain.length_nm)
-            .with_error(Interval::meters(u64::from(high.stations[1].1)).hi);
+        let origin = Interval::ZERO.with_error(Interval::meters(low.stations_nm()[0].1).hi);
+        let end = Interval::meters(domain.length_nm())
+            .with_error(Interval::meters(high.stations_nm()[1].1).hi);
         let length = end - origin;
         if length.lo <= 0. {
             return Err(Failure::Projection);
         }
-        let first = partition(rows, |r| r.stations[1].0 <= window[0], work)?;
-        let end = partition(rows, |r| r.stations[0].0 < window[1], work)?;
+        let first = partition(rows, |r| r.stations_nm()[1].0 <= window[0], work)?;
+        let end = partition(rows, |r| r.stations_nm()[0].0 < window[1], work)?;
         Ok(Self {
             network,
             query,
             trace,
+            trace_length_nm,
             origin,
             length,
             surface: Surface {
@@ -352,7 +375,7 @@ impl<'a, 'q> Candidate<'a, 'q> {
             Ok(found) => Ok(found.map(|(wheel, constraint)| TrackOutcome::Infeasible {
                 wheel,
                 constraint,
-                at_nm: range[0],
+                at_mm: enclosing_mm([range[0]; 2]),
             })),
             Err(Failure::Steering) if depth > 0 && range[1] - range[0] > 1 => {
                 let mid = range[0] + (range[1] - range[0]) / 2;
@@ -385,9 +408,9 @@ impl<'a, 'q> Candidate<'a, 'q> {
         let covered = self.wheels(&pose, work)?;
         if let Coverage::Outside(i, overrun_lower_m) = covered {
             return Ok(TrackOutcome::Outside {
-                overrun_lower_m,
+                overrun_lower_mm: overrun_lower_m.map(lower_mm),
                 wheel: WHEELS[i],
-                at_nm: range[0],
+                at_mm: enclosing_mm([range[0]; 2]),
             });
         }
         if let Some(failed) =
@@ -408,7 +431,7 @@ impl<'a, 'q> Candidate<'a, 'q> {
         };
         let a = &self.surface.rows[index];
         let b = &self.surface.rows[index + 1];
-        let at = a.stations[1].0;
+        let at = a.stations_nm()[1].0;
         let mut k = |row| {
             work.charge()?;
             let m = path::sided(row, at, t)?;
@@ -445,7 +468,7 @@ impl<'a, 'q> Candidate<'a, 'q> {
                             return Some(TrackOutcome::Infeasible {
                                 wheel: Wheel::FrontLeft,
                                 constraint: SteeringConstraint::Jump,
-                                at_nm: at,
+                                at_mm: enclosing_mm([at; 2]),
                             });
                         }
                         Err(reason) => {
@@ -482,12 +505,12 @@ impl<'a, 'q> Candidate<'a, 'q> {
                 .or_else(|| self.visit([mid, range[1]], depth + 1, steering, work));
         }
         if reason == Failure::WorkLimit {
-            self.unchecked = Some([range[0], self.query.trace.length()]);
+            self.unchecked = Some([range[0], self.trace_length_nm]);
         }
         let (range_nm, first) = *self.first_gap.get_or_insert((range, reason));
         if !can_split {
             return Some(TrackOutcome::Unproven {
-                range_nm,
+                range_mm: enclosing_mm(range_nm),
                 reason: first,
             });
         }
@@ -505,44 +528,49 @@ impl SharedNetworkRevision {
         limits: SteeringLimits,
         budget: u32,
     ) -> TrackReport {
-        let range = [0, query.trace.length()];
+        let range_mm = [0, query.trace.length_mm()];
         let mut work = Work::new(budget.min(TRACK_WORK_LIMIT));
         let bound = steering::Steering::new(limits).and_then(|s| {
-            if range[1] > 0 && !s.moving() {
+            if range_mm[1] > 0 && !s.moving() {
                 return Err(Failure::InvalidInput);
             }
             Ok((Candidate::bind(self, query, &mut work)?, s))
         });
-        let (outcome, prefix, unchecked_nm) = match bound {
+        let (outcome, prefix, unchecked_mm) = match bound {
             Err(reason) => (
-                TrackOutcome::Unproven {
-                    range_nm: range,
-                    reason,
-                },
+                TrackOutcome::Unproven { range_mm, reason },
                 0,
-                work.exhausted.then_some(range),
+                work.exhausted.then_some(range_mm),
             ),
             Ok((mut candidate, steering)) => {
+                let range = [0, candidate.trace_length_nm];
                 let result = candidate.visit(range, 0, &steering, &mut work).unwrap_or({
                     if let Some((range_nm, reason)) = candidate.first_gap {
-                        TrackOutcome::Unproven { range_nm, reason }
+                        TrackOutcome::Unproven {
+                            range_mm: enclosing_mm(range_nm),
+                            reason,
+                        }
                     } else if let Some(pose) = candidate.covered {
                         TrackOutcome::Covered(pose)
                     } else {
                         TrackOutcome::Unproven {
-                            range_nm: range,
+                            range_mm,
                             reason: Failure::Pose,
                         }
                     }
                 });
-                (result, candidate.prefix, candidate.unchecked)
+                (
+                    result,
+                    candidate.prefix / NM_PER_MM,
+                    candidate.unchecked.map(enclosing_mm),
+                )
             }
         };
         TrackReport {
             outcome,
-            covered_prefix_nm: prefix,
+            covered_prefix_mm: prefix,
             work: work.used,
-            unchecked_nm,
+            unchecked_mm,
         }
     }
 }

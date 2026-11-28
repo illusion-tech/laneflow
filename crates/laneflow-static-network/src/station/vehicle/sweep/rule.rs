@@ -4,7 +4,7 @@ use crate::station::vehicle::surface::{Projection, dot};
 
 fn anchors(e: &BoundaryExtent) -> [I; 2] {
     std::array::from_fn(|i| {
-        I::meters(e.stations_nm[i]).with_error(I::meters(u64::from(e.errors_nm[i])).hi)
+        I::meters(e.stations_nm()[i]).with_error(I::meters(e.errors_nm()[i]).hi)
     })
 }
 fn overlaps(s: I, [lo, hi]: [I; 2]) -> bool {
@@ -71,9 +71,9 @@ fn permission<'a>(
                 && directions & direction != 0
             {
                 let [lo, hi] = anchors(e);
-                if (lo.hi <= reach || end_anchor == Some(e.stations_nm[0])) && hi.lo > reach {
+                if (lo.hi <= reach || end_anchor == Some(e.stations_nm()[0])) && hi.lo > reach {
                     reach = hi.lo;
-                    end_anchor = Some(e.stations_nm[1]);
+                    end_anchor = Some(e.stations_nm()[1]);
                     if reach > station.hi {
                         return Ok(Permission::Allow);
                     }
@@ -269,7 +269,7 @@ pub(super) fn check<'a>(
             && forbidden & mask != 0
             && overlaps(region.station, anchors(e))
         {
-            let nm = e.stations_nm[0] + (e.stations_nm[1] - e.stations_nm[0]) / 2;
+            let nm = e.stations_nm()[0] + (e.stations_nm()[1] - e.stations_nm()[0]) / 2;
             let station = I::meters(nm);
             if !covers(station, anchors(e)) {
                 continue;

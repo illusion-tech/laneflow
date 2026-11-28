@@ -35,8 +35,10 @@ impl PathContext {
     }
 }
 
+mod handoff;
+
 /// 一条证据的核验产物：`label` 进回执正文，`detail` 是核验结论；
-/// `identity` 携带记录自身声明的输入身份（当前仅 `l1-record`），供汇总层
+/// `identity` 携带记录自身声明的输入身份（当前仅 `handoff-run`），供汇总层
 /// 与 manifest 声明判等。
 #[derive(Debug, Clone)]
 pub struct EvidenceOutcome {
@@ -234,49 +236,11 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
                 identity: None,
             })
         }
-        Evidence::L1Record { path, expect } => {
-            let full = ctx.resolve(path)?;
-            let bytes =
-                fs::read(&full).map_err(|e| invalid(format!("记录读取失败 {path}：{e}")))?;
-            let value: serde_json::Value = serde_json::from_slice(&bytes)
-                .map_err(|e| invalid(format!("记录不是 JSON {path}：{e}")))?;
-            let format_id = value.get("format").and_then(serde_json::Value::as_str);
-            if format_id != Some(crate::l1check::L1_RECORD_FORMAT) {
-                return Err(invalid(format!(
-                    "L1 核查记录格式不符：{path} 的 format={format_id:?}"
-                )));
-            }
-            let verdict = value
-                .get("verdict")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| invalid(format!("L1 核查记录缺少 verdict：{path}")))?;
-            // 结论无条件要求 clean：#1271 处置规定含这种拓扑的路网不得用于
-            // 安全验收，`violations-found` 不能依赖可选 expect 才被拦下。
-            if verdict != "clean" {
-                return Err(invalid(format!(
-                    "L1 核查结论必须为 clean（含 #1271 拓扑的输入不得用于安全验收）：{path} 的 verdict={verdict}"
-                )));
-            }
-            if let Some(expect) = expect
-                && let Some(wanted) = &expect.verdict
-                && verdict != wanted
-            {
-                return Err(invalid(format!(
-                    "L1 核查结论不符：{path} 的 verdict={verdict}，期望 {wanted}"
-                )));
-            }
-            let Some(identity) = value
-                .pointer("/bundle/identity")
-                .and_then(serde_json::Value::as_str)
-            else {
-                return Err(invalid(format!("L1 核查记录缺少 bundle.identity：{path}")));
-            };
-            Ok(EvidenceOutcome {
-                label: path.clone(),
-                detail: format!("identity={identity}，verdict={verdict}"),
-                identity: Some(identity.to_owned()),
-            })
-        }
+        Evidence::HandoffRun {
+            path,
+            input_manifest,
+            implementation_commit,
+        } => handoff::resolve(path, input_manifest, implementation_commit, ctx),
     }
 }
 

@@ -1,4 +1,4 @@
-//! 统一汇总回执（`lf-unified-gate-receipt-1`）的模型与渲染。
+//! 统一汇总回执的模型与渲染。
 //!
 //! 回执是确定性的：同一 manifest 与同一批记录输入产生逐字节相同的回执
 //! （不含时间戳与本机路径），便于试跑与正式汇总对拍。机器可读副本为
@@ -7,7 +7,7 @@
 use serde::Serialize;
 
 use crate::evidence::EvidenceOutcome;
-use crate::manifest::{RECEIPT_FORMAT, ScopeAdjudication};
+use crate::manifest::{MANIFEST_FORMAT, RECEIPT_FORMAT, ScopeAdjudication};
 
 /// 运行模式：试跑（现有记录，允许未完成项）或正式（#305 在 #1279 完成后运行）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,13 +145,13 @@ impl Receipt {
         let mut out = String::new();
         out.push_str(&format!("# {}\n\n", self.title));
         out.push_str(&format!(
-            "format `{}` · mode `{}` · 生成自声明式输入（`lf-unified-gate-manifest-1`）：{}\n\n",
+            "format `{}` · mode `{}` · 生成自声明式输入（`{MANIFEST_FORMAT}`）：{}\n\n",
             RECEIPT_FORMAT, self.mode, self.mode_note
         ));
         if self.mode == "trial" {
-            out.push_str("> **试跑结果不作为 v0.10 结论**（#1268 验收标准：仅验证汇总器消费现有记录；缺失的 #1279 记录与验收提交核对标为未完成）。\n\n");
+            out.push_str("> **试跑仅核对声明和证据**，未完成项见本回执。\n\n");
         } else {
-            out.push_str("> 正式汇总：由 #305 在 #1279 完成后运行；performance 轴结论为「未认证」，不构成性能通过。\n\n");
+            out.push_str("> 正式汇总按以下输入、来源和授权范围登记各轴结论。\n\n");
         }
 
         out.push_str("## 1. 五轴总览\n\n");
@@ -203,8 +203,8 @@ impl Receipt {
             }
         }
 
-        out.push_str("## 3. 范围裁定清单（维护者 2026-11-05）\n\n");
-        out.push_str("| 项目 | 裁定 | 须写入 v0.10 结论的未覆盖范围 | 授权 |\n");
+        out.push_str("## 3. 范围裁定清单\n\n");
+        out.push_str("| 项目 | 裁定 | 未覆盖范围 | 授权 |\n");
         out.push_str("| --- | --- | --- | --- |\n");
         for row in &self.scope_adjudication {
             out.push_str(&format!(
@@ -230,7 +230,7 @@ impl Receipt {
         out.push('\n');
 
         if !self.l1_checks.is_empty() {
-            out.push_str("## 5. L1 输入 #1271 拓扑核查\n\n");
+            out.push_str("## 5. L1 动态换道步进记录\n\n");
             for check in &self.l1_checks {
                 out.push_str(&format!(
                     "- {}：`{}`（{}）\n",

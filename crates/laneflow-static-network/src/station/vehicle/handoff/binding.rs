@@ -1,5 +1,6 @@
 use super::{Failure, HandoffWindow, lane_pair};
 use crate::{SharedNetworkRevision, SharedStationMapping};
+use core::ops::Bound::{self, Excluded, Included};
 use laneflow_static_contract::{
     AuthoringLaneOrdinal, CanonicalFrameOrdinal, LaneEdgeOrdinal, NetworkRevisionId,
     RoadCorridorOrdinal,
@@ -13,7 +14,8 @@ pub struct HandoffBinding {
     corridor: RoadCorridorOrdinal,
     frame: CanonicalFrameOrdinal,
     increasing: bool,
-    common_stations_nm: [u64; 2],
+    common_stations_mm: [u64; 2],
+    open_travel_end: bool,
 }
 
 impl HandoffBinding {
@@ -47,10 +49,25 @@ impl HandoffBinding {
         self.increasing
     }
 
-    /// 两边实际拥有且在声明窗口内的可表示纳米站位闭区间，从小到大。
+    /// 两边与声明窗口的交集，按毫米站位从小到大。切点归行驶下游边，
+    /// 上游端显式为开端点；行驶方向反转时开端点相应落在低端。
     #[must_use]
-    pub const fn common_stations_nm(&self) -> [u64; 2] {
-        self.common_stations_nm
+    pub const fn common_stations_mm(&self) -> [Bound<u64>; 2] {
+        let [lo, hi] = self.common_stations_mm;
+        match (self.increasing, self.open_travel_end) {
+            (true, true) => [Included(lo), Excluded(hi)],
+            (false, true) => [Excluded(lo), Included(hi)],
+            (_, false) => [Included(lo), Included(hi)],
+        }
+    }
+
+    pub(super) fn common_stations_nm(&self) -> [u64; 2] {
+        // 发布站位已验证可表示。两个端点之间仅行驶终端可能是开端点。
+        let [lo, hi] = self.common_stations_mm.map(|mm| mm * super::NM_PER_MM);
+        [
+            lo + u64::from(self.open_travel_end && !self.increasing),
+            hi - u64::from(self.open_travel_end && self.increasing),
+        ]
     }
 }
 
@@ -58,10 +75,11 @@ struct EdgeDomain {
     lane: AuthoringLaneOrdinal,
     corridor: RoadCorridorOrdinal,
     increasing: bool,
-    stations_nm: [u64; 2],
+    stations_mm: [u64; 2],
+    last: bool,
 }
 
-/// 返回该边按行驶方向实际拥有的整数纳米站位。内切点属于下游边，链末端属于末边。
+/// 返回该边按行驶方向实际拥有的毫米站位域。内切点属于下游边，链末端属于末边。
 fn owned_stations(
     mapping: &SharedStationMapping,
     ordinal: LaneEdgeOrdinal,
@@ -74,20 +92,17 @@ fn owned_stations(
         .ok_or(Failure::Unavailable)?;
     let lane = mapping.lanes[edge.lane.index()].ok_or(Failure::Unavailable)?;
     let spans = edge.spans.slice(&mapping.segments);
-    let start = spans.first().ok_or(Failure::Unavailable)?.map.stations_nm()[0];
-    let end = spans.last().ok_or(Failure::Unavailable)?.map.stations_nm()[1];
+    let start = spans.first().ok_or(Failure::Unavailable)?.map.stations_mm()[0];
+    let end = spans.last().ok_or(Failure::Unavailable)?.map.stations_mm()[1];
     let chain = lane.spans.slice(&mapping.segments);
     let last = chain.last().ok_or(Failure::Unavailable)?.edge == ordinal;
-    let stations = if lane.increasing {
-        [start, if last { end } else { end - 1 }]
-    } else {
-        [if last { end } else { end + 1 }, start]
-    };
+    let stations = [start.min(end), start.max(end)];
     Ok(EdgeDomain {
         lane: edge.lane,
         corridor: lane.corridor,
         increasing: lane.increasing,
-        stations_nm: stations,
+        stations_mm: stations,
+        last,
     })
 }
 
@@ -118,22 +133,25 @@ impl SharedNetworkRevision {
         {
             return Err(Failure::Binding);
         }
-        let [low, high] = window.stations_nm;
+        let [low, high] = window.stations_mm;
         let domain = mapping
             .corridor_domain(corridor)
             .ok_or(Failure::Unavailable)?;
-        if low > high || high > domain.length_nm {
+        if low > high || high > domain.length_mm() {
             return Err(Failure::InvalidInput);
         }
         let members = lane_pair(self, corridor, window, || Ok(()))?;
         if members != [source.lane, target.lane] && members != [target.lane, source.lane] {
             return Err(Failure::Binding);
         }
-        let common = [
-            low.max(source.stations_nm[0]).max(target.stations_nm[0]),
-            high.min(source.stations_nm[1]).min(target.stations_nm[1]),
-        ];
-        if common[0] > common[1] {
+        let low = low.max(source.stations_mm[0]).max(target.stations_mm[0]);
+        let high = high.min(source.stations_mm[1]).min(target.stations_mm[1]);
+        let common = [low, high];
+        let travel_end = usize::from(source.increasing);
+        let open_travel_end = [&source, &target]
+            .iter()
+            .any(|edge| !edge.last && edge.stations_mm[travel_end] == common[travel_end]);
+        if low > high || (low == high && open_travel_end) {
             return Err(Failure::Binding);
         }
         let frame = mapping
@@ -147,7 +165,8 @@ impl SharedNetworkRevision {
             corridor,
             frame,
             increasing: source.increasing,
-            common_stations_nm: common,
+            common_stations_mm: common,
+            open_travel_end,
         })
     }
 }

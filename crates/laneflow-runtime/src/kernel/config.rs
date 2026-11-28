@@ -62,6 +62,7 @@ pub struct WorldConfig {
     route_edge_occurrence_capacity: u64,
     route_conflict_occurrence_capacity: u64,
     fixed_delta_time_ms: u64,
+    handoff_driving: Option<crate::HandoffDrivingConfig>,
 }
 
 impl WorldConfig {
@@ -86,7 +87,21 @@ impl WorldConfig {
             route_edge_occurrence_capacity: input.route_edge_occurrence_capacity,
             route_conflict_occurrence_capacity: input.route_conflict_occurrence_capacity,
             fixed_delta_time_ms: input.fixed_delta_time_ms,
+            handoff_driving: None,
         })
+    }
+
+    /// 在安装世界前启用动态横移，并指定净空曲线、分段跨度与行程容差。
+    #[must_use]
+    pub const fn with_handoff_driving(mut self, config: crate::HandoffDrivingConfig) -> Self {
+        self.handoff_driving = Some(config);
+        self
+    }
+
+    /// 世界实际使用的动态横移驾驶参数。普通世界返回 `None`。
+    #[must_use]
+    pub const fn handoff_driving(&self) -> Option<&crate::HandoffDrivingConfig> {
+        self.handoff_driving.as_ref()
     }
 
     /// 恢复路线时临时容纳全部冲突通行出现，重编译后按保存与目标容量核对实际总数。

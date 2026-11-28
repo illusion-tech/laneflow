@@ -54,6 +54,46 @@ pub struct Manifest {
     pub files: Vec<FileRecord>,
 }
 
+impl Manifest {
+    /// 核对声明的输入身份、来源提交与规范文件清单。文件内容由目录核验入口读回。
+    ///
+    /// # Errors
+    /// 来源、格式、身份或文件长度及摘要字段不合法时返回错误。
+    pub fn validate(&self) -> Result<(), Error> {
+        self.identity.validate()?;
+        self.provenance().validate()?;
+        let valid_digest = |s: &str| {
+            s.len() == 64
+                && s.bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        };
+        if self.format != "lf-synth-manifest-1"
+            || !valid_digest(&self.config_digest)
+            || self.files.iter().map(|f| f.name.as_str()).ne([
+                "input-plan.json",
+                "network.lfca",
+                "state.json",
+            ])
+            || self
+                .files
+                .iter()
+                .any(|f| f.byte_length == 0 || !valid_digest(&f.digest))
+        {
+            return Err(Error::Invalid(
+                "manifest 格式、文件清单、长度或摘要不符".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn provenance(&self) -> Provenance {
+        Provenance {
+            source_commit: self.source_commit.clone(),
+            generator_commit: self.generator_commit.clone(),
+        }
+    }
+}
+
 /// 已从冻结合同构造的四文件输入包。
 #[derive(Debug)]
 pub struct Bundle {
@@ -115,21 +155,21 @@ pub fn generate(identity: Identity, provenance: Provenance) -> Result<Bundle, Er
 pub(crate) fn generate_inputs(identity: Identity, provenance: Provenance) -> Result<Bundle, Error> {
     let mut files = BTreeMap::new();
     // L1 走独立发射面（LFCA 嵌入发射调用点行号，`network.rs` 必须逐字保持）。
-    let network_bytes = if identity.lane_change().is_some() {
+    let cells = identity.cells();
+    let (network_bytes, sections, geometry_points) = if identity.lane_change().is_some() {
         network_lane_change::compile(&identity)?
     } else {
-        network::compile(&identity)?
+        (network::compile(&identity)?, Vec::new(), cells * 416)
     };
     files.insert("network.lfca".into(), network_bytes);
     files.insert(
         "state.json".into(),
-        canonical_json(&initial_state(&identity)?)?,
+        canonical_json(&initial_state(&identity, &sections)?)?,
     );
     files.insert(
         "input-plan.json".into(),
         canonical_json(&plan::input_plan(&identity))?,
     );
-    let cells = identity.cells();
     let lane_change = identity.lane_change();
     let clusters = lane_change.map_or(0, |params| params.clusters);
     let changers = lane_change.map_or(0, |params| {
@@ -145,7 +185,7 @@ pub(crate) fn generate_inputs(identity: Identity, provenance: Provenance) -> Res
     let counts = [
         ("cells", cells),
         ("individuals", identity.scale + changers),
-        ("routes", cells * 4 + clusters),
+        ("routes", cells * 4 + changers),
         ("edges", cells * 8 + 8 * clusters),
         ("controllers", cell_maneuver),
         ("groups", cell_maneuver * 4),
@@ -156,7 +196,7 @@ pub(crate) fn generate_inputs(identity: Identity, provenance: Provenance) -> Res
         ("maneuver_paths", cell_maneuver * 4 + 2 * clusters),
         ("facilities", cells),
         ("spaces", identity.scale),
-        ("geometry_points", cells * 416 + 16 * clusters),
+        ("geometry_points", geometry_points),
         ("active", active),
         ("parked", identity.scale - active + changers),
     ]
@@ -231,22 +271,10 @@ pub fn verify_directory(directory: &Path) -> Result<Bundle, Error> {
     }
     let manifest_bytes = read_bounded(&directory.join("manifest.json"), limit("manifest.json"))?;
     let manifest: Manifest = serde_json::from_slice(&manifest_bytes)?;
-    manifest.identity.validate()?;
-    let provenance = Provenance {
-        source_commit: manifest.source_commit.clone(),
-        generator_commit: manifest.generator_commit.clone(),
-    };
-    provenance.validate()?;
-    if manifest.format != "lf-synth-manifest-1"
-        || canonical_json(&manifest)? != manifest_bytes
-        || manifest
-            .files
-            .iter()
-            .map(|f| f.name.as_str())
-            .collect::<Vec<_>>()
-            != ["input-plan.json", "network.lfca", "state.json"]
-    {
-        return Err(Error::Invalid("manifest 格式、编码或文件清单不符".into()));
+    manifest.validate()?;
+    let provenance = manifest.provenance();
+    if canonical_json(&manifest)? != manifest_bytes {
+        return Err(Error::Invalid("manifest 编码不符".into()));
     }
     let mut actual = BTreeMap::new();
     for record in &manifest.files {

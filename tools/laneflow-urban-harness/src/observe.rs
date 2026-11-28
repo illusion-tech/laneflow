@@ -101,8 +101,8 @@ pub(crate) struct ObservationScratch {
     bodies: Vec<Body>,
     merge: Vec<Body>,
     runs: Vec<usize>,
-    claims: Vec<(IndividualId, u32)>,
-    zone_owners: FastMap<u32, IndividualId>,
+    claims: Vec<ObservedClaim>,
+    zone_owners: FastMap<u32, usize>,
     #[cfg(feature = "verification-cost-counts")]
     pub(crate) work: crate::verification_cost::counts::WorkloadCounts,
     #[cfg(feature = "verification-cost-counts")]
@@ -614,6 +614,7 @@ fn conflict_reason(reason: ConflictNoGrantReason) -> u32 {
         ConflictNoGrantReason::LeadGap => 6,
         ConflictNoGrantReason::DownstreamStorageBoundary => 7,
         ConflictNoGrantReason::DownstreamClaimConflict => 8,
+        ConflictNoGrantReason::PlatoonTruncated => 9,
     }
 }
 
@@ -628,6 +629,7 @@ fn conflict_reason_name(reason: ConflictNoGrantReason) -> &'static str {
         ConflictNoGrantReason::LeadGap => "lead-gap",
         ConflictNoGrantReason::DownstreamStorageBoundary => "downstream-storage",
         ConflictNoGrantReason::DownstreamClaimConflict => "downstream-claim",
+        ConflictNoGrantReason::PlatoonTruncated => "platoon-truncated",
     }
 }
 
@@ -642,7 +644,7 @@ fn passage_fields(
         p.maneuver_occurrence_index(),
         p.admission_gate_hop(),
         p.conflict_occurrence_index(),
-        p.address().static_zone().map_or(u32::MAX, |z| z.raw()),
+        p.address().zone().raw(),
         p.address().stream().raw(),
         p.address().passage_local_index(),
     )
@@ -700,7 +702,7 @@ fn occupied_yield_pulse(
         let address = passage.address();
         let (zone, targets) =
             policy.yield_targets(address.stream(), class, address.passage_local_index())?;
-        if Some(zone) != address.static_zone() {
+        if zone != address.zone() {
             return None;
         }
         let pulse = h
@@ -1012,7 +1014,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                     if h.claims
                         .insert(
                             (id, h.route_table.index(r.route()), index),
-                            p.address().static_zone().map_or(u32::MAX, |z| z.raw()),
+                            p.address().zone().raw(),
                         )
                         .is_some()
                     {
@@ -1024,7 +1026,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 if h.in_step_observation(e.tick())
                     && let Some(witness) = &mut h.evidence[id.tile as usize].right_of_way
                     && witness.pulse == id
-                    && witness.zone == p.address().static_zone().map_or(u32::MAX, |z| z.raw())
+                    && witness.zone == p.address().zone().raw()
                 {
                     witness
                         .pulse_cleared
@@ -1418,23 +1420,80 @@ pub(crate) fn state(h: &mut Harness<'_>) -> Result<(String, (usize, usize, usize
     state_impl(h, OBSERVATION_BLOCK)
 }
 
-/// 资源声明（`claims`）不变量的只读块检查：按原 map 迭代序逐条核对预约持有方，
-/// 返回块内首个缺失持有方的位置；主线程按块序取全局首个位置，再按 map 序
-/// 逐条先插入 zone_owners 再判定，触发点与串行逐条（zone 独占冲突先于持有方
-/// 缺失）一致。
+#[derive(Clone, Copy)]
+struct ObservedClaim {
+    owner: IndividualId,
+    route: u32,
+    occurrence: u32,
+    zone: u32,
+}
+
+impl ObservedClaim {
+    fn held_range(
+        self,
+        world: &TrafficWorld,
+        routes: &crate::route_table::RouteTable,
+        individuals: &[crate::runner::Individual],
+    ) -> Option<ConflictPassageRange> {
+        let id = self.owner;
+        let individual = individuals.get(id.tile as usize * 1_000 + id.slot as usize)?;
+        if individual.id != id {
+            return None;
+        }
+        let range = world
+            .conflict_reservation(individual.handle?)?
+            .passage_range();
+        if routes.index(range.route()) != self.route
+            || self
+                .occurrence
+                .checked_sub(range.first_conflict_occurrence_index())?
+                >= range.passage_count()
+        {
+            return None;
+        }
+        let passage = world.conflict_passage_occurrence_locator(range.route(), self.occurrence)?;
+        (passage.address().zone().raw() == self.zone).then_some(range)
+    }
+}
+
+/// 只允许同一普通通行流、相同顺序的完整 passage 集合共享，绝对路线出现可以不同。
+fn same_ordinary_coverage(
+    world: &TrafficWorld,
+    a: ConflictPassageRange,
+    b: ConflictPassageRange,
+) -> bool {
+    if a.passage_count() != b.passage_count() || a.passage_count() == 0 {
+        return false;
+    }
+    let address = |range: ConflictPassageRange, offset| {
+        let index = range
+            .first_conflict_occurrence_index()
+            .checked_add(offset)?;
+        Some(
+            world
+                .conflict_passage_occurrence_locator(range.route(), index)?
+                .address(),
+        )
+    };
+    let Some(first) = address(a, 0) else {
+        return false;
+    };
+    (0..a.passage_count()).all(|offset| {
+        address(a, offset)
+            .is_some_and(|cell| cell.stream() == first.stream() && Some(cell) == address(b, offset))
+    })
+}
+
+/// 按原 map 顺序核对持有人及其预约覆盖的路线出现，返回块内第一个错误下标。
 fn claims_block(
     world: &TrafficWorld,
+    routes: &crate::route_table::RouteTable,
     individuals: &[crate::runner::Individual],
-    claims: &[(IndividualId, u32)],
+    claims: &[ObservedClaim],
 ) -> Option<usize> {
-    claims.iter().position(|(id, _)| {
-        let individual = &individuals[id.tile as usize * 1_000 + id.slot as usize];
-        individual.id != *id
-            || individual
-                .handle
-                .and_then(|handle| world.conflict_reservation(handle))
-                .is_none()
-    })
+    claims
+        .iter()
+        .position(|claim| claim.held_range(world, routes, individuals).is_none())
 }
 
 /// 归并各块有序 bodies 并执行共享判据的完整集合扫描（`state_impl` 的
@@ -1547,7 +1606,16 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
         scratch.claims.clear();
         scratch
             .claims
-            .extend(h.claims.iter().map(|((id, _, _), zone)| (*id, *zone)));
+            .extend(
+                h.claims
+                    .iter()
+                    .map(|(&(owner, route, occurrence), &zone)| ObservedClaim {
+                        owner,
+                        route,
+                        occurrence,
+                        zone,
+                    }),
+            );
         let claims = &scratch.claims;
         #[cfg(feature = "verification-cost-counts")]
         {
@@ -1565,7 +1633,14 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
             h.pool.as_ref(),
             claims.len(),
             OBSERVATION_BLOCK,
-            |from, to| Ok(claims_block(world, individuals, &claims[from..to])),
+            |from, to| {
+                Ok(claims_block(
+                    world,
+                    &h.route_table,
+                    individuals,
+                    &claims[from..to],
+                ))
+            },
         );
         #[cfg(feature = "verification-cost-counts")]
         {
@@ -1580,13 +1655,17 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
                     .map(|index| block * OBSERVATION_BLOCK + index)
             });
         scratch.zone_owners.clear();
-        for (index, (id, zone)) in claims.iter().enumerate() {
-            if scratch
-                .zone_owners
-                .insert(*zone, *id)
-                .is_some_and(|old| old != *id)
+        for (index, claim) in claims.iter().enumerate() {
+            if let Some(old) = scratch.zone_owners.insert(claim.zone, index)
+                && claims[old].owner != claim.owner
+                && !claims[old]
+                    .held_range(world, &h.route_table, individuals)
+                    .zip(claim.held_range(world, &h.route_table, individuals))
+                    .is_some_and(|(a, b)| same_ordinary_coverage(world, a, b))
             {
-                return Err(invalid("committed conflict claims are not exclusive"));
+                return Err(invalid(
+                    "shared conflict claims do not have identical ordinary passage coverage",
+                ));
             }
             if missing_owner == Some(index) {
                 return Err(invalid("claim has no current reservation owner"));
@@ -2390,12 +2469,50 @@ mod tests {
     }
 
     #[test]
+    fn opposing_reservations_in_one_zone_cannot_share_coverage() {
+        let (_temp, artifacts) = fixture_artifacts();
+        let plan = crate::ResolvedPlan::for_case(
+            &artifacts,
+            crate::UrbanCase::UncontrolledYield,
+            crate::Window::probe(2_048).unwrap(),
+        )
+        .unwrap();
+        let mut h = Harness::install(&artifacts, &plan, execution(1)).unwrap();
+        let mut first = BTreeMap::new();
+        for _ in 0..2_048 {
+            h.advance().unwrap();
+            for event in h.world.latest_transition_events() {
+                let TrafficTransitionKind::ReservationAcquired {
+                    passage_range: range,
+                } = event.kind()
+                else {
+                    continue;
+                };
+                for offset in 0..range.passage_count() {
+                    let cell = h
+                        .world
+                        .conflict_passage_occurrence_locator(
+                            range.route(),
+                            range.first_conflict_occurrence_index() + offset,
+                        )
+                        .unwrap()
+                        .address();
+                    let zone = cell.zone().raw();
+                    let (first_cell, first_range) = *first.entry(zone).or_insert((cell, range));
+                    if cell.stream() != first_cell.stream() {
+                        assert!(same_ordinary_coverage(&h.world, range, range));
+                        assert!(!same_ordinary_coverage(&h.world, first_range, range));
+                        return;
+                    }
+                }
+            }
+        }
+        panic!("uncontrolled yield must issue reservations to opposing streams");
+    }
+
+    #[test]
     fn state_rejects_non_exclusive_committed_conflict_claims() {
-        // 资源声明排他：merge 按 map 序逐条先插入 zone_owners 再判定持有方，
-        // 首个同 zone 的声明必须先通过持有方校验，排他错误才会在第二条
-        // 触发。持有方通过需要世界里真实的冲突预约：SUSTAINED-ACTIVE
-        // 等负载场景的冲突裁决全程休眠，UNCONTROLLED-YIELD 的
-        // opposing pulse 持预约通过冲突区（实测第 133 拍起，确定性）。
+        // 先由真实交通取得预约，再试图让另一个世代共享该车的同一条声明。
         let (_temp, artifacts) = fixture_artifacts();
         let plan = crate::ResolvedPlan::for_case(
             &artifacts,
@@ -2423,24 +2540,28 @@ mod tests {
                 None
             })
             .expect("UNCONTROLLED-YIELD fixture produces a conflict reservation holder");
-        // 真 owner 的 claim（map 序在前）+ 同 zone 不同 owner 的 claim。
-        h.claims.insert((holder, 0, 0), 0);
+        // 保留真实出现和区域，给同一区域伪造第二位持有人。
+        let (&(_, route, occurrence), &zone) = h
+            .claims
+            .iter()
+            .find(|((owner, _, _), _)| *owner == holder)
+            .unwrap();
         h.claims.insert(
             (
                 IndividualId {
                     incarnation: holder.incarnation + 1,
                     ..holder
                 },
-                0,
-                0,
+                route,
+                occurrence,
             ),
-            0,
+            zone,
         );
         assert!(
             state_impl(&mut h, 64)
                 .unwrap_err()
                 .to_string()
-                .contains("committed conflict claims are not exclusive")
+                .contains("shared conflict claims do not have identical ordinary passage coverage")
         );
     }
 

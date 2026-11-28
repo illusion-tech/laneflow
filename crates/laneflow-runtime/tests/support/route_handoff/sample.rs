@@ -3,7 +3,6 @@ use laneflow_runtime::{RouteHandoffPreview, RouteHandoffSampleError, determinist
 use laneflow_static_contract::LaneEdgeOrdinal;
 use laneflow_static_network::vehicle::{Failure, HandoffLaneSide};
 
-const TOLERANCE_NM: u64 = 5_000_000;
 const LIMITS: GeometryWorkLimits = GeometryWorkLimits::STANDARD;
 
 fn check_occurrences(
@@ -14,26 +13,20 @@ fn check_occurrences(
     use HandoffLaneSide::{Source, Target};
     let cases = [
         (0, 0, source_index - 1, Source, [true, false]),
-        (0, 10_000_000, source_index, Source, [true, true]),
-        (12_999_999, 2, source_index + 1, Target, [true, true]),
-        (
-            13_000_001,
-            9_999_999,
-            source_index + 2,
-            Target,
-            [false, true],
-        ),
+        (0, 10_000, source_index, Source, [true, true]),
+        (12_999, 2, source_index + 1, Target, [true, true]),
+        (13_001, 9_999, source_index + 2, Target, [false, true]),
     ];
     for ((before, step, occurrence, side, occupied), edge) in cases.into_iter().zip(physical_edges)
     {
         let report = preview
-            .sample_after_travel(before, step, TOLERANCE_NM, LIMITS)
+            .sample_after_travel(before, step, TRAVEL_TOLERANCE_MM, LIMITS)
             .unwrap();
         let sample = report
             .sample
             .as_ref()
             .unwrap_or_else(|_| panic!("{report:?}"));
-        assert_eq!(sample.rear_travel_um, before + step);
+        assert_eq!(sample.rear_travel_mm, before + step);
         assert_eq!(sample.front_occurrence, occurrence);
         assert_eq!(sample.footprint.front_side, side);
         assert_eq!(
@@ -45,13 +38,13 @@ fn check_occurrences(
         assert_eq!(front.edge, edge);
         assert!(addresses.next().is_none());
         if before == 0 && step == 0 {
-            assert_eq!(sample.rear_stations_nm, [10_000_000_000; 2]);
+            assert_eq!(sample.rear_stations_mm, [10_000; 2]);
             // s1 从 10 m 开始，静止的前杠位于后轴前方 3.40 m。
             assert!((front.progress_mm[0]..=front.progress_mm[1]).contains(&3400));
         }
         assert_eq!(
             preview
-                .sample_after_travel(sample.rear_travel_um, 0, TOLERANCE_NM, LIMITS)
+                .sample_after_travel(sample.rear_travel_mm, 0, TRAVEL_TOLERANCE_MM, LIMITS)
                 .as_ref(),
             Some(&report)
         );
@@ -61,7 +54,7 @@ fn check_occurrences(
 fn check_query_limits(preview: &RouteHandoffPreview<'_>) {
     let sample = |limits| {
         preview
-            .sample_after_travel(12_999_999, 2, TOLERANCE_NM, limits)
+            .sample_after_travel(12_999, 2, TRAVEL_TOLERANCE_MM, limits)
             .unwrap()
     };
     let full = sample(LIMITS);
@@ -96,10 +89,10 @@ fn check_query_limits(preview: &RouteHandoffPreview<'_>) {
         (exact.tracks, exact.sweep - 1)
     );
 
-    // 加法溢出、微米到纳米的首次溢出均在几何查询前拒绝。
-    for (before, step) in [(u64::MAX, 1), (u64::MAX / 1000, 1)] {
+    // 加法溢出、超出可查域的毫米行程均在几何查询前拒绝。
+    for (before, step) in [(u64::MAX, 1), (u64::MAX / 1_000_000, 1)] {
         let report = preview
-            .sample_after_travel(before, step, TOLERANCE_NM, LIMITS)
+            .sample_after_travel(before, step, TRAVEL_TOLERANCE_MM, LIMITS)
             .unwrap();
         assert_eq!(
             report.sample,
@@ -108,7 +101,7 @@ fn check_query_limits(preview: &RouteHandoffPreview<'_>) {
         assert_eq!((report.travel_work, report.footprint_work), (0, 0));
     }
     let outside = preview
-        .sample_after_travel(30_000_000, 1_000_000, TOLERANCE_NM, LIMITS)
+        .sample_after_travel(30_000, 1_000, TRAVEL_TOLERANCE_MM, LIMITS)
         .unwrap();
     assert_eq!(
         outside.sample,
@@ -117,9 +110,9 @@ fn check_query_limits(preview: &RouteHandoffPreview<'_>) {
     assert_eq!(outside.footprint_work, 0);
 
     // 在源车道 22 m 切点，独立计算的前杠纵站为 s + 3.4 / sqrt(1 + y'²)。
-    // 五次横移的后轴纵站为 18.63619435 m，积分至此的行程为 8.66079991 m。
+    // 该点累积行程约 8.6608 m；查询 8661 mm 的站位求界仍覆盖切点两侧。
     let at_cut = preview
-        .sample_after_travel(8_660_800, 0, TOLERANCE_NM, LIMITS)
+        .sample_after_travel(8_661, 0, TRAVEL_TOLERANCE_MM, LIMITS)
         .unwrap();
     assert_eq!(at_cut.sample, Err(RouteHandoffSampleError::AmbiguousFront));
 }
@@ -157,15 +150,15 @@ fn sampled_travel_keeps_body_evidence_and_counts_only_the_selected_route_visit()
         source_index: 2,
         owner: BoundaryOwner::Section(section),
         left_index: 0,
-        stations_nm: [24_000_000_000, 26_000_000_000],
+        stations_mm: [24_000, 26_000],
     };
     let trial = RouteHandoffTrial {
         profile: rev
             .identity()
             .stable_id(conflict_profile(&rev, "car"))
             .unwrap(),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm: [10_000_000_000, 40_000_000_000],
+        station_window_mm: [0, 50_000],
+        rear_stations_mm: [10_000, 40_000],
         speed_m_s: 1.,
         limits: LIMITS,
     };
@@ -199,7 +192,7 @@ fn sampled_travel_keeps_body_evidence_and_counts_only_the_selected_route_visit()
     let missing_target = world
         .preview_route_handoff(&truncated_binding, &trial)
         .unwrap()
-        .sample_after_travel(23_000_000, 0, TOLERANCE_NM, LIMITS)
+        .sample_after_travel(23_000, 0, TRAVEL_TOLERANCE_MM, LIMITS)
         .unwrap();
     assert_eq!(
         missing_target.sample,
@@ -218,7 +211,7 @@ fn sampled_travel_keeps_body_evidence_and_counts_only_the_selected_route_visit()
     let missing_source = world
         .preview_route_handoff(&short_binding, &trial)
         .unwrap()
-        .sample_after_travel(0, 0, TOLERANCE_NM, LIMITS)
+        .sample_after_travel(0, 0, TRAVEL_TOLERANCE_MM, LIMITS)
         .unwrap();
     assert_eq!(
         missing_source.sample,
@@ -229,7 +222,7 @@ fn sampled_travel_keeps_body_evidence_and_counts_only_the_selected_route_visit()
         .bind_route_handoff(
             &route,
             RouteHandoffOccurrence {
-                stations_nm: [24_000_000_000, 25_000_000_000],
+                stations_mm: [24_000, 25_000],
                 ..occurrence
             },
         )
@@ -241,7 +234,7 @@ fn sampled_travel_keeps_body_evidence_and_counts_only_the_selected_route_visit()
     ));
     assert!(
         rejected
-            .sample_after_travel(0, 0, TOLERANCE_NM, LIMITS)
+            .sample_after_travel(0, 0, TRAVEL_TOLERANCE_MM, LIMITS)
             .is_none()
     );
     assert_eq!(world.command_cursor(), cursor);

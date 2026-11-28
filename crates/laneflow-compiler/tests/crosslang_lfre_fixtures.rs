@@ -313,7 +313,7 @@ fn assert_source_edge_ordinals(output: &laneflow_compiler::CompilationOutput) {
     )
     .unwrap();
     let bytes = candidate.source_map().bytes();
-    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 8);
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 9);
     let map = preflight_object_values(bytes, PortableObjectKind::SourceMap, FormatLimits::HARD)
         .unwrap()
         .registry_view();
@@ -444,12 +444,12 @@ fn cross_language_complete_bend_preserves_station_support_and_named_payloads() {
                 .iter()
                 .find(|e| e.local_key() == "rail")
                 .unwrap();
-            assert_eq!(rail.stations_nm, [0, 7_035_087_719]);
+            assert_eq!(rail.stations_mm, [0, 7_035]);
             assert!(matches!(
                 rail.payload,
                 Some(BoundaryPayload::Guardrail {
                     anchor_role: 2,
-                    heights_um: [0, 850_000],
+                    heights_mm: [0, 850],
                     ..
                 })
             ));
@@ -461,13 +461,16 @@ fn cross_language_complete_bend_preserves_station_support_and_named_payloads() {
             assert!(matches!(
                 curb.payload,
                 Some(BoundaryPayload::Curb {
-                    ends_um: [[_, _, 0, 100_000], [_, _, 0, 180_000]],
+                    ends_mm: [[_, _, 0, 100], [_, _, 0, 180]],
                     ..
                 })
             ));
             let s = map.surface_spans(rail.corridor);
-            assert_eq!(s.first().unwrap().stations[0].0, 0);
-            assert!(s.windows(2).all(|w| w[0].stations[1] == w[1].stations[0]));
+            assert_eq!(s.first().unwrap().stations_mm[0].0, 0);
+            assert!(
+                s.windows(2)
+                    .all(|w| w[0].stations_mm[1] == w[1].stations_mm[0])
+            );
             assert_eq!(
                 output
                     .lir()
@@ -1090,8 +1093,7 @@ fn published_mapping_projects_the_graded_bend_from_lfca_alone() {
                     .section_corridor(relations.authoring_section(target).unwrap())
                     .unwrap();
                 let StationQuery::Complete(exact) =
-                    root.station_mapping()
-                        .at_station(corridor, 60_300_751_880, target)
+                    root.station_mapping().at_station(corridor, 60_301, target)
                 else {
                     panic!("exact station unresolved")
                 };
@@ -1102,10 +1104,29 @@ fn published_mapping_projects_the_graded_bend_from_lfca_alone() {
                 } else {
                     0
                 };
-                assert_eq!(
-                    (addresses[0].edge, addresses[0].progress_mm),
-                    (if moved || reverse { b1 } else { b2 }, [expected, expected])
-                );
+                assert_eq!(addresses[0].edge, if moved || reverse { b1 } else { b2 });
+                let [lo, hi] = addresses[0].progress_mm;
+                if moved {
+                    assert!((lo..=hi).contains(&expected) && hi - lo <= 4);
+                } else {
+                    assert_eq!([lo, hi], [0, 0]);
+                    for (station_mm, expected_edge) in [(60_300, b1), (60_302, b2)] {
+                        let StationQuery::Complete(found) = root
+                            .station_mapping()
+                            .at_station(corridor, station_mm, target)
+                        else {
+                            panic!("unresolved station {station_mm} mm, reverse={reverse}")
+                        };
+                        assert_eq!(
+                            found
+                                .addresses()
+                                .map(|address| address.edge)
+                                .collect::<Vec<_>>(),
+                            [expected_edge],
+                            "station {station_mm} mm, reverse={reverse}"
+                        );
+                    }
+                }
                 let StationQuery::Complete(ordinary) =
                     root.station_mapping().from_progress(a2, 1005, target)
                 else {
@@ -1168,7 +1189,14 @@ fn required_cross_sections_share_an_anchor_only_at_the_same_station() {
             }
         ));
     };
-    for (value, collision) in [(station.next_up(), true), (50.0, false), (f64::NAN, false)] {
+    let same_mm = ((station * 1000.0).round_ties_even() + 0.25) / 1000.0;
+    assert_ne!(same_mm, station);
+    for (value, collision) in [
+        (same_mm, true),
+        (station.next_up(), true),
+        (50.0, false),
+        (f64::NAN, false),
+    ] {
         bytes[start..start + 8].copy_from_slice(&value.to_le_bytes());
         let err = builder
             .add_road_editing_module(
@@ -1374,20 +1402,32 @@ fn partial_coextension_uses_each_corridors_local_domain() {
         ] {
             let StationObservation::Complete {
                 corridor,
-                stations_nm,
+                stations_mm,
             } = mapped.stations_for_progress(edge(key), 0)
             else {
                 panic!("missing source domain")
             };
             let domain = mapped.corridor_domain(corridor).unwrap();
-            assert_eq!(stations_nm[0], 0);
-            assert_eq!(domain.origin_nm, (station(origin) * 1e9).round() as u64);
+            assert_eq!(stations_mm[0], 0);
             assert_eq!(
-                domain.length_nm,
-                ((station(end) - station(origin)) * 1e9).round() as u64
+                domain.origin_mm(),
+                (station(origin) * 1000.).round_ties_even() as u64
+            );
+            assert_eq!(
+                domain.length_mm(),
+                ((station(end) - station(origin)) * 1000.).round_ties_even() as u64
             );
             if origin != 53. {
                 assert_eq!(mapped.at_station(corridor, 0, b), StationQuery::Unavailable);
+                let adjacent_mm = if origin == 0. {
+                    domain.length_mm() - 1
+                } else {
+                    1
+                };
+                assert_eq!(
+                    mapped.at_station(corridor, adjacent_mm, b),
+                    StationQuery::Unavailable
+                );
                 assert_eq!(
                     mapped.from_progress(edge(key), 0, b),
                     StationQuery::Unavailable
@@ -1398,7 +1438,7 @@ fn partial_coextension_uses_each_corridors_local_domain() {
             for (s, id, mm) in [
                 (0, edge(key), 0),
                 (
-                    domain.length_nm,
+                    domain.length_mm(),
                     last,
                     root.traffic().lane_lengths_millimetres()[last.index()],
                 ),
@@ -1411,7 +1451,7 @@ fn partial_coextension_uses_each_corridors_local_domain() {
                 assert_eq!((out[0].edge, out[0].progress_mm), (id, [mm, mm]));
             }
             assert_eq!(
-                mapped.at_station(corridor, domain.length_nm + 1, b),
+                mapped.at_station(corridor, domain.length_mm() + 1, b),
                 StationQuery::Outside
             );
         }

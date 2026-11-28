@@ -111,8 +111,7 @@ batch_columns! {
     stop_mm: u32 = laneflow_motion_kernel::NO_HOLD_TARGET,
     route_end_mm: u32 = laneflow_motion_kernel::NO_HOLD_TARGET,
     envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0,
-    edge_length: u32 = 0, exhausted_speed_cap: u32 = 0, exhausted_cap_dominates: bool = false,
-    transition_hop: Option<u32> = None,
+    edge_length: u32 = 0, exhausted_speed_cap: u32 = 0,
     waiting_hop: Option<u32> = None,
     conflict_hop: Option<u32> = None,
     has_proposal: bool = false, proposal_speed: f32 = 0.0, proposal_travel: f32 = 0.0,
@@ -389,7 +388,6 @@ fn numerical(
         carry_um: &source.carry_um[offset..offset + n],
         hard_room_mm: &batch.hard_room[range.clone()],
         exhausted_speed_cap_mm_s: &batch.exhausted_speed_cap[range.clone()],
-        exhausted_cap_dominates: &batch.exhausted_cap_dominates[range.clone()],
         committed_limit_mm_s: &[u32::MAX; BLOCK_ROWS][range.clone()],
         leader_m: &batch.leader[range.clone()],
         has_leader: &batch.has_leader[range.clone()],
@@ -677,12 +675,7 @@ fn compute(
                 .motion_cache
                 .get(active_index)
                 .filter(|entry| entry.vehicle == handle);
-            let transition =
-                view.read
-                    .transition_reservation_stop(state, compiled, view.conflict_read());
-            // P2 完整预览没有 P4 的过渡预约；有相应障碍时只复用基础提案。
             if let Some(next) = cached
-                .filter(|_| transition.is_none())
                 .and_then(|entry| entry.preview(view.motion_previews))
                 .and_then(|preview| preview.reuse(waiting, conflict))
             {
@@ -763,14 +756,7 @@ fn compute(
             batch.store(row, &basis);
             batch.waiting_hop[row] = waiting.map(|stop| stop.hop);
             batch.conflict_hop[row] = conflict.map(|barrier| barrier.constraint.hop);
-            let limits = basis.limits(
-                position.progress_mm,
-                compiled,
-                waiting,
-                conflict,
-                transition,
-                false,
-            );
+            let limits = basis.limits(position.progress_mm, waiting, conflict, false);
             #[cfg(feature = "motion-trace")]
             super::trace_motion(
                 handle,
@@ -790,10 +776,6 @@ fn compute(
             batch.stop_mm[row] = super::hold_target_mm(limits.stop);
             batch.hard_room[row] = limits.hard_room_mm;
             batch.exhausted_speed_cap[row] = limits.exhausted_speed_cap(&basis, delta_s);
-            // F3'：过渡绑定的耗尽由舒适衰减上界主导，传给内核完成阶段
-            // （不进候选形成）。
-            batch.exhausted_cap_dominates[row] = limits.transition_limited;
-            batch.transition_hop[row] = transition.map(|bound| bound.stop.hop);
             chunk.cursor[row] = position.route_edge_index;
             Ok(())
         })();
@@ -964,8 +946,7 @@ fn compute(
                         source.speed_mm_s[offset + row],
                         gate_distance,
                     ) && batch.waiting_hop[row].is_none_or(|hop| hop as usize != index)
-                        && batch.conflict_hop[row].is_none_or(|hop| hop as usize != index)
-                        && batch.transition_hop[row].is_none_or(|hop| hop as usize != index));
+                        && batch.conflict_hop[row].is_none_or(|hop| hop as usize != index));
                 batch.has_next[row] = index + 1 < compiled.edges.len();
                 batch.walk_length[row] = length;
                 Some(())
@@ -1632,6 +1613,7 @@ mod tests {
                         .map(|handle| world.vehicle(*handle))
                         .collect();
                     let read = crate::kernel::phase::StepReadView {
+                        handoff_grants: &[],
                         binding: &world.state.binding,
                         committed: &world.state.committed,
                         derived: &world.state.derived,
@@ -1726,7 +1708,7 @@ mod tests {
                             // #1272：紧急域也放不下时速度收到目标限速（§8.1
                             // crossing 投影），同拍按包络过边，已提交速度合规。
                             (1, 699, 4_000),
-                            "speed-limit projection without a transition reservation"
+                            "speed-limit projection"
                         );
                     }
                     let mut next =

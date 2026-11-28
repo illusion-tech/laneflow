@@ -7,7 +7,7 @@ type Result<T> = std::result::Result<T, PortableEmissionError>;
 const INVALID: PortableEmissionError = PortableEmissionError::InternalBindingMismatch;
 
 type Anchor = (u32, u64, Reverse<u32>);
-type Corridor = (u32, u64, u64, u32, u32);
+type Corridor = (u32, u64, u64, u32, u32, u32);
 type Lane = (u32, u8, u32, u32);
 type Edge = (u32, u32, u32, u32);
 type Span = (u32, u64, u32, u32, u32);
@@ -157,6 +157,7 @@ pub(super) fn prepare<'a>(lir: &'a LirUnit, n: Sizes, pass: &PassBudget<'_>) -> 
             let g = &lir.lane_edge_geometries[e.index()];
             let p = g.station.as_ref().ok_or(INVALID)?;
             if p.origin != head.origin
+                || p.origin_error_mm != head.origin_error_mm
                 || p.corridor_length != head.corridor_length
                 || p.start != start
             {
@@ -223,6 +224,7 @@ pub(super) fn prepare<'a>(lir: &'a LirUnit, n: Sizes, pass: &PassBudget<'_>) -> 
             c,
             head.origin,
             head.corridor_length,
+            head.origin_error_mm,
             anchor(c, 0)?,
             chunk.len() as u32,
         ))?;
@@ -236,12 +238,12 @@ pub(super) fn prepare<'a>(lir: &'a LirUnit, n: Sizes, pass: &PassBudget<'_>) -> 
                 .corridors
                 .binary_search_by_key(&c, |r| r.0)
                 .map_err(|_| INVALID)?;
-            let (_, _, _, start, n) = m.corridors[i];
+            let (_, _, _, _, start, n) = m.corridors[i];
             m.bands.push((
                 g.facility_band.raw(),
                 start,
                 start + n - 1,
-                b.offsets_um,
+                b.offsets_mm,
                 b.lateral_error,
             ))?;
         }
@@ -253,7 +255,7 @@ pub(super) fn prepare<'a>(lir: &'a LirUnit, n: Sizes, pass: &PassBudget<'_>) -> 
             if let Some((proof, supports)) = w.lane {
                 let (_, l) = c.width_owner(lir, w.member).ok_or(INVALID)?;
                 m.footprints
-                    .push((l, proof.offsets_um, proof.lateral_error, supports))?;
+                    .push((l, proof.offsets_mm, proof.lateral_error, supports))?;
             }
         }
         for e in &p.extents {
@@ -314,12 +316,12 @@ impl Inputs<'_> {
             [
                 t.table(
                     1,
-                    self.corridors.iter().map(|&(c, o, n, f, len)| {
+                    self.corridors.iter().map(|&(c, o, n, error, f, len)| {
                         t.row([
                             field(1, U32(c)),
                             field(2, U64(o)),
                             field(3, U64(n)),
-                            field(4, U32(1)),
+                            field(4, U32(error)),
                             field(5, U32(f)),
                             field(6, U32(len)),
                         ])

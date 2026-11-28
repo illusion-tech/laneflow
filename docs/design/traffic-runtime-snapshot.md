@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-snapshot"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-27"
+revised_date = "2026-11-28"
 summary = "定义运行时快照、恢复、摘要与跨修订迁移。"
 scope = "版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口"
 applicability = "#applicability"
@@ -36,14 +36,14 @@ related = ["adr-0020", "adr-0021", "adr-0028", "adr-0029", "design-parking-syste
 本文的 #303 观测/Routing 恢复与回放接缝已由 #303 G1 接受，与 #302 合同共同构成
 当前唯一实现正本。
 
-> 实现状态：当前唯一生产合同与实现均为 Runtime Snapshot v7；来源绑定封闭为发布 / 编辑两种
+> 实现状态：当前生产合同为 Runtime Snapshot v8、运行时状态 6、摘要 9；来源绑定封闭为发布 / 编辑两种
 > 形状（编辑来源只绑定道路编辑状态摘要、总长度与模块数）；停车使用 tagged
 > `ExplicitSpace | VirtualPool` binding，并保存 Reserved/Occupied 状态、所有 Reserved
 > binding 的精确 entry route occurrence 和 virtual reservation 的 semantic entry anchor；
 > Waiting 保存 traversal、semantic membership 与非零历史 admission counter；
 > Conflict 保存 first eligibility、Clearing Gate marker、reservation/passages/downstream authority 与
 > 非 `NoHistory` lag reference，occupancy 从整车位置和 passage 锚点重建；
-> `WorldConfig` 保存独立的路线边出现记录与路线冲突出现记录容量。旧 schema、reader 与
+> 已登记的路线窗口、已提交横移、组合预约与逐车路口授权终点按 §2.1 保存。`WorldConfig` 保存世界驾驶配置及两类路线出现记录容量。旧 schema、reader 与
 > writer 不属于当前生产入口，不提供双读或自动迁移。
 
 ## 1. 问题与设计立场
@@ -68,8 +68,7 @@ downstream authority 与 lag history 的持久化、同/跨修订迁移和生产
 ## 2. 版本轴与绑定集
 
 [执行配置设计][execution-config]将 worker 移出快照。当前版本轴为
-LFRS 7 / runtime state 5 / digest 8；执行配置分离与编辑来源绑定仅改变容器布局，#1035
-仅更换摘要算法与摘要版本，交通状态及摘要原像布局不变。
+LFRS 8 / runtime state 6 / digest 9。三轴共同覆盖 §2.1 的路线窗口、已提交横移及逐车预约终点。
 安装与 fresh restore 都显式接收 `ExecutionConfig`，完整交通准备后才校验执行能力。
 
 版本轴分离：容器 `formatVersion` 与被绑定事实的版本（runtime 版本、
@@ -109,13 +108,13 @@ worker 1–16，超出后端能力的请求在完整交通恢复后返回执行�
 密集序号、共享静态数组、`EditableDiffBase`、partition / worker assignment、数组地址 / layout /
 capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime 无自有随机流）。
 
-### 2.1 任意位置换道与路口跟入预约的联合升版（目标合同）
+### 2.1 任意位置换道与路口跟入预约的联合升版
 
 LFRS 8、runtime state 6、deterministic digest 9 是同一次交付的唯一组合。容器 8 保存
 路线登记的横向交接窗口、车辆已提交的任意位置换道及其组合预约，以及普通路口每份
 冲突预约的下游授权终点 `E_f`（联合设计 §6.11）。状态 6 和摘要 9 覆盖同一组事实。
 发布时写入、读回、直接与捕获摘要、恢复、迁移日志和回放一起切换。联合读方拒绝旧组合
-及混用版本，包括空路线、无车或没有预约的世界。实施前生产组合仍为 7/5/8，固定预制过渡的保存限制见 §3。
+及混用版本，包括空路线、无车或没有预约的世界。
 
 **登记窗口。** 摘要 9 在 §6 每条路线记录的有序边向量后追加 `u64` 窗口数，普通路线写零。
 各窗口按源出现下标严格递增，每项依次写以下字段。整数用小端，各稳定引用沿用 §6 的
@@ -125,7 +124,7 @@ LFRS 8、runtime state 6、deterministic digest 9 是同一次交付的唯一组
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 源出现       | `source_index:u32`。目标为受检的 `source_index + 1`，两边的有向身份取自这两个出现。两处出现必须存在，同一源出现只能登记一次。                                                                                  |
 | 结构边界     | `ownerKind:u16`，继以所有者、左成员、右成员各一个 `StableId128`。沿用横断面表 7 的种类值。1 为走廊及其相邻两区段，2 为区段及其相邻两编制车道。左右按走廊参考方向，须重验直接邻接、切点归属和两条有向边的资格。 |
-| 允许交接窗口 | `low_nm:u64, high_nm:u64`，所属走廊局部站位闭区间，`low_nm ≤ high_nm`。读回须证明两边的有向站位域与窗口有非空共同范围。                                                                                        |
+| 允许交接窗口 | `low_mm:u64, high_mm:u64`，所属走廊局部毫米站位闭区间，`low_mm ≤ high_mm`。读回须证明两边的有向站位域与窗口有非空共同范围。                                                                                        |
 
 验收使用两条尚无车辆、边序列相同的路线，仅改变允许窗口或重复边的源出现下标。
 两者的摘要原像须可区分，各自恢复后的直接摘要须与捕获摘要一致。
@@ -136,8 +135,8 @@ LFRS 8、runtime state 6、deterministic digest 9 是同一次交付的唯一组
 交接，直到相应义务均已结束。P3/P4 尚未提交的试算、申请和当拍工作计数不入档。
 每项的字段顺序如下。
 
-1. 保存候选的轨迹配置版本（`u16`）、求高与投影窗口（`low_nm:u64, high_nm:u64`）、
-   沿行驶方向的后轴起点与终点（各 `u64` 纳米）。投影窗口按数值递增；反向行驶的后轴
+1. 保存候选的轨迹配置版本（`u16`）、求高与投影窗口（`low_mm:u64, high_mm:u64`）、
+   沿行驶方向的后轴起点与终点（各 `u64` 毫米）。投影窗口按数值递增；反向行驶的后轴
    起点大于终点，不能交换。路线的允许交接窗口约束前保险杠过缝，这里的投影窗口还须容纳整车求高。
    同一修订与结构边界确定框架和走廊，所属车辆的有效车型稳定引用确定轴距、车体及转向限值。
 2. 依次保存求证转向角速率时的后轴速度、轮迹预算 `tracks:u32`、扫过预算 `sweep:u32`。
@@ -146,7 +145,7 @@ LFRS 8、runtime state 6、deterministic digest 9 是同一次交付的唯一组
    保存，制动后两者可以不同。几何算法与确定性工作顺序按轨迹配置版本解释。
 3. 保存从候选起点沿后轴三维轨迹累计的已提交行程 `rear_travel_um:u64`，再写前保险杠
    是否已交接（`u8`，0 为尚在源出现，1 为已进入目标出现）。行程含不足一毫米的余量，
-   按下文从单一整数读回。当前边的纵向进度与余量仍随前保险杠游标独立保存。
+   按下文从单一整数读回。活动期间边内进度取已提交前杠对应的有向毫米下界，普通车头积分余量为零。两侧已持约而前杠触及共边的外包仍跨两侧时，保留源游标；恢复时由候选行程与两侧保护共同复核。
 4. 依次写预约获得刻度 `u64`、仍持有的物理区间数 `u64`、各区间。每个区间依次写
    角色 `u8`（1 源侧、2 目标侧、3 扫过、4 下游）、物理边 `StableId128`、
    `start_mm:u32, end_mm:u32`。采用沿边前向的非空半开区间，在边长内保守覆盖该角色须保护的范围。
@@ -174,7 +173,7 @@ LFRS 的集合仍用 FlatBuffers 向量及其自身的长度，`u64` 集合计�
 正反向验收取水平直路上纵向前进 30 米、横向移动 3.5 米的同一五次曲线。站位从 20 米到 50 米或从 50 米到 20 米，
 到 35 米时两向后轴三维行程均落在 15.14456 至 15.14458 米内。两向若从 15,144,999 微米再走
 2 微米，结果同为 15,145 毫米加 1 微米。实际站位分别递增、递减，相邻两次反查的外包可以重叠。
-反查显式给定正的纳米容差与逻辑工作上限（单次至多 4,096），成功结果为按数值递增的保守站位闭区间。
+世界与运行时试算的反查容差为正整数毫米，传给静态几何时精确换算，并设置逻辑工作上限（单次至多 4,096），成功结果为按数值递增的保守站位闭区间。
 容差约束区间宽度，整段区间均须满足要提交的判定。
 超出候选、可能跨越未唯一确定的候选末端、加法或换算越界、预算耗尽或几何未证时，本次预检不得发布推进
 或释放保护。跨端点分配同拍剩余行程须另证两段的消费与交接次序，不得用弧长外包中点或截断到终点来分配。
@@ -182,10 +181,10 @@ LFRS 的集合仍用 FlatBuffers 向量及其自身的长度，`u64` 集合计�
 **联合版的恢复首拍。** 命令侧可显式传入本拍行程、反查容差和工作上限验证一次预检。接入运行世界时，
 须把影响选速、反查容差和后续裁决的有效参数、单位、顺序、字宽及版本纳入 §6 世界行为配置，
 由版本唯一指认的固定常数可从该版本重建。启用动态换道的世界显式提供[横断面设计 §5][clearance-speed]所规定的净空限速曲线。
-首版世界行为使用同一个正的 `travel_tolerance_nm`，在限速准备时约束每个累计三维行程区间的宽度，在执行反查时约束相应站位区间的宽度。
+首版世界行为使用同一个正的 `travel_tolerance_mm`，在限速准备时约束每个累计三维行程区间的宽度，在执行反查时约束相应站位区间的宽度。
 联合版的世界行为配置在固定步长之后、刻度之前写入以下摘要原像（整数小端）。`mode:u8` 为 0 表示关闭动态换道，无后续字段；
-为 1 表示显式启用，依次写 `policy_version:u16=1`、`max_span_nm:u64`、`travel_tolerance_nm:u64`、
-`point_count:u64`，再按原序逐项写 `clearance_um:u32, speed_mm_s:u32`。
+为 1 表示显式启用，依次写 `policy_version:u16=2`、`max_span_mm:u32`、`travel_tolerance_mm:u32`、
+`point_count:u64`，再按原序逐项写 `clearance_mm:u32, speed_mm_s:u32`。
 
 LFRS 8 的 FlatBuffers 模式标签为 `u8`，默认值 0 无效，`Disabled = 1`、`Enabled = 2`。读方拒绝缺失、零及未知标签。
 前者映射到摘要模式 0，后者映射到摘要模式 1。启用载荷中的版本、跨度和容差采用上述标量宽度，均须为有效的非零值。
@@ -196,10 +195,13 @@ LFRS 8 的 FlatBuffers 模式标签为 `u8`，默认值 0 无效，`Disabled = 1
 若有活动横移或仍持有横移组合预约，按 §2.1 整次拒绝接管。
 限速计划属于派生值，在相同修订按保存的配置及候选预算重建；不写缓存、指针或宿主预设名。
 联合版须覆盖实际支持的最长候选，并在非零余量、反向行驶、前保险杠恰好过缝、车尾恰好清空和工作预算触限时
-对拍恢复首拍。完成这些合同及联版验收前，8/6/9 不能写入或作为已交付版本公布。
+对拍恢复首拍。
 
 恢复在候选世界重建同一轨迹，从保存的行程复核车体位姿、前保险杠对应的路线游标、
 两侧实际占用与车尾清空条件，再核对预约归属、获得刻度及所需物理区间，全部成立后一次发布。
+活动横移车辆与其他车辆的重叠检查使用该提交拍的双侧车身。源、目标车道可以独立切边，目标侧前杠的边内进度不足一个车长时，车尾位置仍由候选轨迹确定。车辆读入顺序不改变准入结果。
+恢复还须沿其他活动车辆各自的路线，核对它们到剩余保护区入口的停车空间。保护区尚未被车身占用时，也要满足两拍反应行程、服务制动距离和最小间距。可用距离恰好满足时可以恢复。
+恢复活动横移时，须用原候选、车型、固定步长及净空配置重建限速计划。已保存的速度须满足准入上限及当前累计行程处的局部限速。前方若有更低的限速，还须有足够距离按服务制动降速。任一条件不满足，或存档的下游保护不足以覆盖清尾当拍的普通续行，或停车入口会被横移跳过，恢复须整体拒绝。
 以路线交接合同 §4.1 的 30 米横移为例，在前保险杠已通过约 15.19516 米的交接截面、车尾仍在源侧时保存。
 同修订恢复后，游标应已进入目标出现，两侧仍计为同一辆车，首拍从原预约开始。
 与连续运行对照，车尾清空与释放预约的拍、事件序列、游标和逐拍摘要均须一致。保留该阶段却删去源侧保护，
@@ -208,11 +210,11 @@ LFRS 8 的 FlatBuffers 模式标签为 `u8`，默认值 0 无效，`Disabled = 1
 
 **冲突预约的下游终点**。每份非空冲突预约必带一个规范终点。以预约已有的
 `maneuver_entry_route_edge_index` 为锚，按顺序编码
-`relative_hop_offset:u32`、`progress_mm:u32`、`carry_um:u16`。
+`relative_hop_offset:u32`、`progress_mm:u32`，共 8 字节。
 以受检加法还原路线边出现下标；同一边的第二次、第三次经过各有独立位置。
 非末边接缝唯一编码为下一边的零进度，只有路线末端可用末边全长。
-当前清空锚点、车长及叠放间距均为整毫米，本版本合法授权终点的 `carry_um`
-精确等于零。非零输入拒绝；车辆位置和空间上界仍按完整微米坐标与终点比较。
+清空锚点、车长与叠放间距均为整数毫米，因而终点精确落在整数毫米上。
+车辆的跨拍位移余数单独保存在车辆状态中。
 writer 生成规范坐标，reader 拒绝越界、非规范接缝、相对下标溢出和缺失终点。
 
 快照保留预约既有的车、路线、Gate、passages 与获得刻度。原下游物理区间向量
@@ -236,41 +238,30 @@ capture 自 Gate 正向重建至终点的规范并集，与该车在当前冲突
 
 ## 3. 每世界可变状态
 
-下表列出 LFRS 7 的生产字段。LFRS 8 的路线窗口、活动横移与两类预约见 §2.1。
+下表列出 LFRS 8 的各类状态。路线窗口、活动横移与两类预约的字段次序见 §2.1。
 
 | 状态        | 快照表示                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现记录均由目标共享路网修订重新编译，不入快照                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）及其登记窗口；机动、等待区与冲突 passage 出现记录均由目标共享路网修订重新编译，不入快照                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档                                                                                                                                                                                                                                                                                |
 | Waiting     | 每车保存可选 maneuver traversal 与 semantic membership；每个有逻辑历史的 zone 保存 `WaitingZone StableId128`、occupancy 与单调 `nextAdmissionSequence`。queue link、tick-local claim 与 latest output batch 不入档                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Conflict    | 每车保存可选 exact Gate occurrence eligibility（含 `firstEligibleTick`），或 `Clearing` Gate marker 与该车的 reservation wire row（acquired tick、passage stable locator/route occurrence 证明、committed downstream 物理区间并集）；restore 后 eligibility 必须同时满足 exact locator/位置与所选 policy 在已恢复时刻对 admission Gate 的 `Candidate` 决策，`DenyAndStop` 整体拒绝；完整 reservation 只安装进 `ConflictArbiter`，vehicle 不保留副本。每个非 `NoHistory` cell 保存 tagged `ActualClear | CutoverFloor` 与时间。occupant/cleared、profile 派生的跟车间隙、frontier、tick-local grant 和内部 serial 不入档 |
+| Conflict    | 每车保存可选 exact Gate occurrence eligibility（含 `firstEligibleTick`），或 `Clearing` Gate marker 与该车的 reservation wire row（acquired tick、passage stable locator/route occurrence 证明、逐车授权终点 `E_f`）；restore 后 eligibility 必须同时满足 exact locator/位置与所选 policy 在已恢复时刻对 admission Gate 的 `Candidate` 决策，`DenyAndStop` 整体拒绝；完整 reservation 只安装进 `ConflictArbiter`，vehicle 不保留副本。每个非 `NoHistory` cell 保存 tagged `ActualClear | CutoverFloor` 与时间。occupant/cleared、profile 派生的跟车间隙、frontier、tick-local grant 和内部 serial 不入档 |
 | live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 车辆是运行时实体，没有 `StableId128`：它以 `snapshot_vehicle_id` 持存并被
 停车、live 序引用；静态实体（边、profile、class、停车位和停车设施）用 `StableId128`。
 快照局部标识只在单个快照内稳定，恢复经 `SharedIdentityIndex` 与局部标识表
-重建。LFRS 7 的边上纵向进度、余量、车速分别为整数毫米、微米与 `u32` 毫米每秒。
-LFRS 8 沿用这些字段；窗口的走廊站位、候选后轴的走廊站位、准入速度与沿轨迹行程分别按 §2.1 解释。
-
-**固定预制过渡退役期间。** 在固定过渡边的运行时入口和存量用途迁移完成前，生产
-保存与直接摘要沿用 #1217 的 `UnsupportedTransitionState`。活动过渡、预约及当前
-格式不能忠实表达的过渡清空历史均按既有边界返回，失败后旧世界可继续运行。
-联合版只为 §2.1 的路线交接和预约登记新记录。固定过渡资源的身份及历史不可改写为
-普通冲突区、普通路口 `E_f` 或任意位置换道状态。[固定预制过渡合同][lane-change-contract]
+重建。边上纵向进度、跨拍积分余量、车速分别为整数毫米、微米与 `u32` 毫米每秒。窗口的走廊站位、候选后轴的走廊站位、准入速度与沿轨迹行程分别按 §2.1 解释。
 
 arrival 不保存独立布尔值。恢复后只从同一 Reserved binding 与已保存车辆状态派生：
 route handle 必须是该 binding 所属 route，`route_edge_index` 必须等于 exact entry
 occurrence，`progress_mm` 必须精确等于解析后的整数毫米 anchor，且
-`speed_mm_s == 0`、`carry_um == 0`。任一项不同都不是 Arrived；reader 不允许用同一
-LaneEdge、距离容差或“已经越过”补成到达。virtual entry 的 semantic anchor 恢复为目标
-修订内的 typed selector后，仍必须满足上述同一谓词。
+`speed_mm_s == 0`。同一毫米刻度内的积分余量保留。相同物理边的其他出现、超出锚点至少一毫米或尚有车速均不满足到达条件。虚拟入口重绑到目标修订的选择器后沿用同一判据。
 
 Reserved entry 还必须从保存的 vehicle cursor 前向可达。对同一 route，entry occurrence
-更大即合法；occurrence 相同时，entry progress 必须更大，或 progress 相同且
-`carry_um == 0`。因此“同一 `progress_mm` 但保存了非零 carry”既不是 Arrived，也不是
-仍可到达的 reservation，reader 必须拒绝，不能清零 carry 修复。
+更大即前向可达。occurrence 相同时，保存的 `progress_mm` 不得大于入口锚点。等值时允许已保存的非零积分余量；超过锚点至少一毫米即拒绝。
 
 **#303 G1 已接受合同**：观测导出/admission session/基线、动态成本快照、未注册
 候选与成本 provenance 是调用方拥有或可重建的交付状态，不进入快照。候选注册
@@ -287,12 +278,12 @@ Reserved entry 还必须从保存的 vehicle cursor 前向可达。对同一 rou
 
 ## 4. 容器
 
-封闭契约：size-prefixed FlatBuffers、file identifier `LFRS`、`formatVersion = 7`；
-schema 位于 `schemas/runtime-snapshot/v7`；生成物隔离于私有 wire package（沿
+封闭契约：size-prefixed FlatBuffers、file identifier `LFRS`、`formatVersion = 8`；
+schema 位于 `schemas/runtime-snapshot/v8`；生成物隔离于私有 wire package（沿
 `laneflow-road-editing-wire` 先例）。读取 verifier-first：语义 lowering 前完成
-长度、基数与版本预检。确认 `formatVersion = 7` / `runtime_state_version = 5` 后，
+长度、基数与版本预检。确认 `formatVersion = 8` / `runtime_state_version = 6` 后，
 reader 还逐 table 拒绝超过现行 schema 对该 table 登记字段数的 vtable 槽；该上界只在
-容器 7 和状态 5 两个版本 gate 成功后选择。FlatBuffers verifier
+容器 8 和状态 6 两个版本 gate 成功后选择。FlatBuffers verifier
 本身允许旧 reader 忽略未知字段，不能替代禁绑字段的封闭性检查。发布链的自定义
 规范制品仍只有 LFCA / LFSM / LFSD / LFCP；
 快照不是发布对象，不要求跨实现字节规范序，只要求逻辑确定性（§6）。
@@ -300,7 +291,7 @@ G2 writer 入口为 `encode_lfrs(&CapturedSnapshot)`：它只读边界捕获，�
 world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空表也编码为
 存在的空 vector。
 
-当前实现只读取 `schemas/runtime-snapshot/v7`；旧 reader/writer 不保留。来源种类与宿主提供的
+当前实现只读取 `schemas/runtime-snapshot/v8`；旧 reader/writer 不保留。来源种类与宿主提供的
 目标来源种类必须一致；`Published` 只能携带发布来源表，`Editable` 只能携带编辑来源表，
 缺失、多余或未知种类都在交通状态 lowering 之前拒绝。恢复先解析
 全部 target/anchor StableId，再验证
@@ -399,9 +390,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   `deterministic_state_digest` 与 `TrafficWorld::direct_state_digest` 返回按角色命名的
   32 字节类型 `StateDigest`，不再复用 `Sha256Digest`。域分隔字节保持
   `laneflow:runtime-state-digest:v1\0`，摘要版本字段已在原像内区分算法更换；随后写
-  当前生产组合的 `u16` 摘要版本 `8` 与 `u16` `runtime_state_version` `5`；整数均小端。
-  下文给出该组合的原像。联合版在同一位置依次写 `9:u16` 和 `6:u16`，保留域分隔与
-  §6 的分组、live 序和记录长度规则。联合版在 fixed dt 后、tick 前写 §2.1 的世界净空驾驶配置，路线和车辆记录的新增字段亦见 §2.1。顶层依次写：
+  `9:u16`（摘要版本）和 `6:u16`（运行时状态版本），整数均小端。fixed dt 后、tick 前写 §2.1 的世界净空驾驶配置。路线和车辆记录的新增字段亦见 §2.1。顶层依次写：
   `world_id`、语义
   `NetworkRevisionId`、六轴静态契约版本、行为语义配置（vehicle/route、edge/conflict
   两类 occurrence 容量与 fixed dt；不写 worker）、tick/时间/双游标、策略选择
@@ -410,7 +399,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   分组多重集和 live 更新序列。每条记录写 `u64 byteLength + bytes`，每个集合先写
   `u64` 数量。路线实例
   分组 = 路线记录 + `u64` 绑定车辆数 + 按记录字节升序的绑定车辆记录多重集；路线记录 =
-  `u64 edgeCount` + 有序边 `StableId128`。车辆记录依次写 route index / progress / carry /
+  `u64 edgeCount`、有序边 `StableId128` 和 §2.1 的窗口向量。车辆记录依次写 route index / progress / carry /
   speed、status 封闭 `u8`（Active=1/Parked=2/Completed=3）、profile/class
   `StableId128`，随后写下列 parking binding：
 
@@ -481,7 +470,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   处置裁决权（归宿主），区别只在是否停用：失同步状态仍是合法确定性状态，只诊断不停用；
   完整性失配的对象可信度已被破坏，宿主先停用再按检查点 + 输入命令序列处置。共享路网修订
   不在 C(T) 内（ADR 0030），其失配不属回滚 / 重演可修复面，只能修订重建。完整性不进入
-  本快照、确定性状态摘要原像与 tick 路径，digest 7 / runtime state 5 版本轴不变。
+  快照、确定性状态摘要原像与 tick 路径。
 
 ## 7. 跨修订迁移入口
 
@@ -520,14 +509,14 @@ workload `signalized-corridor-v1`，LFCA exact `420,332` bytes、28 条 catalog 
 `3,248` bytes；主线程 `capture_snapshot` 中位 `0.002 ms`、`encode_lfrs` 中位
 `0.0072 ms`；published `restore_lfrs` 整次中位 `0.063 ms`；恢复增量堆高水位
 `19,240` bytes / 272 blocks；保存前后稳态 tick 分配账本相等（实测均 0），后台
-4,096 次 encode 竞争下 tick 墙钟与无竞争基线相同。不得作为当前版本（v7）exact
+4,096 次 encode 竞争下 tick 墙钟与无竞争基线相同。不得作为当前版本（v8）exact
 bytes 或性能结论复用；仪器隔离、逐项分配账本与完整表格见基线提交 3f80b65f 的
 本文副本。editable load 的现行初值见下文「2026-10-28 editable load 初值」。
 ### 2026-10-19 再登记（#537，exact head `6cf9056365dcf106bedeba85035863c4fda5a8c1`，v6）
 
 同机 LF-P100-REF-01、rustc 1.98.0、Windows build 29683；fixture 为当前 corridor
 （LFCA exact `425,418 B`，28 路线、2 车、4 ms 步进），故与B 部分 初值（v1、`420,332 B`）
-不作回归比较；本节为 v6 当期登记基线，现行版本为 v7（见 §9），v6 数值保持原身份。未插桩墙钟中位：`capture_snapshot` 主线程
+不作回归比较；本节为 v6 当期登记基线，现行版本为 v8（见 §9），v6 数值保持原身份。未插桩墙钟中位：`capture_snapshot` 主线程
 `0.0016 ms`；`encode_lfrs` 无竞争主线程中位 `0.0029 ms`（后台化可行性沿 §8 初值节
 口径，竞争影响由竞争 tick 行覆盖）；published `restore_lfrs` 整次
 `0.0324 ms`；基线 tick `0.0012 ms` / 后台 4,096 次 encode 竞争下 `0.0027 ms`。
@@ -569,11 +558,11 @@ editable load 停顿 = 宿主重编译 + 修订构建 + `restore_lfrs`，由重�
 cargo test --release --locked -p laneflow-urban-harness --lib editable_load_evidence -- --ignored --nocapture
 ```
 
-## 9. Runtime Snapshot v7 的 G2 边界与必测义务
+## 9. Runtime Snapshot v8 的 G2 边界与必测义务
 
-v7 的 schema 与版本轴到字段映射已在
-`schemas/runtime-snapshot/v7/README.md` clean-generate 并逐项绑定本文 §3–§6；摘要输入的
-精确规范化序列化见 §6。历史版本的 G2 证据不能自动替 v7 通过；不受当前字段集改变的
+v8 的 schema 与版本轴到字段映射已在
+`schemas/runtime-snapshot/v8/README.md` clean-generate 并逐项绑定本文 §3–§6；摘要输入的
+精确规范化序列化见 §6。历史版本的 G2 证据不能自动替 v8 通过；不受当前字段集改变的
 义务继续作为回归 oracle。
 
 必测义务：save → load exact oracle（逻辑状态含双游标与 `time_ms` 全等，句柄
@@ -585,17 +574,13 @@ v7 的 schema 与版本轴到字段映射已在
 准备期保存只捕获旧聚合。路线 edge/conflict occurrence 容量 max/max+1 均须恢复原子；
 检查点后成功候选注册按规范化命令重放且不调用 Routing/旧 cost binding。parking
 状态矩阵、Reserved route ownership、entry occurrence/edge 闭合与
-前向可达单项反例（含同 `progress_mm` 非零 carry）；跨修订 virtual semantic entry exact
+前向可达边界（同 `progress_mm` 可含非零 carry，超出一毫米拒绝）；跨修订 virtual semantic entry exact
 重绑，以及 explicit entry 前移允许/移到 cursor 后方失败；任一失败零部分恢复。冲突
-出现记录不得入档；恢复须证明 exact 重建计数、3A 的一微米边界、保存 carry 生效以及
+出现记录不得入档；恢复须证明 exact 重建计数、3A 的车尾清空边界、跨拍积分余量恢复以及
 Completed 不经过瞬时 Active。捕获与摘要的预留失败注入须证明失败关闭（世界无感知）、清点后重试得到
 同一快照/摘要；save 路径的失败关闭由捕获侧承载（编码边界见 §5）。
 
-Conflict downstream 区间不是 route occurrence 的第二份持久索引。writer 先从
-reservation 的 exact route/Gate/passages、车辆全长与当前边长重建物理区间并集，要求与
-committed 热状态相等，再按 `(edge StableId, startMm, endMm)` 写入。reader 先检查这一
-wire 规范序，解析到当前修订后按 ordinal 排序，再从 reservation 证明独立重建并逐项比较。
-以上为 v7 的单车记录。v8 的预约终点、正向重建及负向验收以 §2.1 和
+writer 从预约的 Gate 沿路线向前重建到逐车授权终点 `E_f`，将物理区间逐项与热账本核对后，保存相对机动入口的出现偏移与边内毫米进度。reader 从同一锚点独立重建各车物理区间，并逐车验证停车与腾让义务。预约终点、正向重建及负向验收见 §2.1 和
 `waiting-zone-conflict-right-of-way.md` §6.11 为准。
 循环路线中同一物理边的重叠 occurrence 可以合并；合并区间没有唯一 route hop，禁止用
 “Gate 后第一个同边 occurrence”补造来源。wire owner 由所属车辆记录给出；恢复后完整
@@ -629,8 +614,8 @@ Waiting traversal/membership/counter、Conflict eligibility/reservation/lag、di
 | Editable 来源               | 已覆盖：安装、快照恢复、同修订换根与跨修订直移的差异基线对应关系，四种来源转换，编辑来源绑定往返与拒绝面；宿主重编译后先认证再恢复的端到端 exact oracle（逻辑状态摘要全等、继续运行逐 tick 相等），含同修订不同构建字节的恢复（#529）                                                                                              |
 | 边界捕获 / 候选准备期保存   | 现行实现保持结构闭合：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试                                                                            |
 | occurrence max / max+1      | 已覆盖：edge 与 conflict 两类总 occurrence 正好等于保存/目标上限时恢复成功；max+1 分别以 `RouteEdgeOccurrences` / `RouteConflictOccurrences` 上限错误失败；实际 conflict 总数由完整 staging 路线表重建后核对                                                                                                                       |
-| 冲突能力保护                | 已覆盖：保存的微米 carry 参与车尾位置；clearance 前一微米拒绝、相等允许；Completed 直接恢复最终态，不经过瞬时 Active；失败零发布                                                                                                                                                                                                   |
-| Conflict 持久状态           | 已覆盖：firstEligibleTick 的 None/tick 0 区分、Clearing owner/passages 与可重建 downstream 物理并集往返、1 mm 改写/缺区间拒绝、ActualClear tick 0、cleared cell 历史类别闭合、悬空 locator/错误 occurrence/重复及 future history 拒绝；same-revision 原样保持，cross-revision 使用最终 T_commit floor 并在连续再次切换时保留原基准 |
+| 冲突能力保护                | 已覆盖：以路线车头毫米进度扣除整车长得到车尾下界；下界位于清空线前时拒绝、抵达时允许，包括跨边及重复边；Completed 直接恢复最终态，不经过瞬时 Active；失败零发布                                                                                                                                                                                                   |
+| Conflict 持久状态           | 已覆盖：firstEligibleTick 的 None/tick 0 区分、Clearing owner/passages 与可重建 downstream 物理并集往返、预约终点越界拒绝、ActualClear tick 0、cleared cell 历史类别闭合、悬空 locator/错误 occurrence/重复及 future history 拒绝；same-revision 原样保持，cross-revision 使用最终 T_commit floor 并在连续再次切换时保留原基准 |
 | 快照五维预算                | Published 初值与 editable load 初值均已登记于 §8                                                                                                                                                                                                                                                                                   |
 
 [adr-0020]: ../adr/0020-compiler-owned-static-network-and-static-image.md
@@ -649,7 +634,6 @@ Waiting traversal/membership/counter、Conflict eligibility/reservation/lag、di
 [integer-geometry]: traffic-runtime-integer-geometry.md
 [execution-config]: traffic-runtime-execution-config.md
 [committed-editing]: committed-road-editing-state.md
-[lane-change-contract]: lane-change-minimal-contract.md
 [state-integrity]: traffic-runtime-state-integrity.md
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [target-path-baseline]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-537-target-path-baseline/README.md

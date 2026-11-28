@@ -166,11 +166,23 @@ pub enum StepError {
     /// completion、traversal 或 ledger 的 Conflict authority 不闭合。
     #[error("Conflict runtime aggregate 不变量损坏")]
     ConflictInvariantViolation,
+    /// 已接收的横移申请无法绑定本拍的车辆、路线或显式世界配置。
+    #[error("横移申请与已提交车辆、路线或驾驶配置不符")]
+    InvalidHandoffRequest,
+    /// 活动横移未能完整证明本拍运动和组合预约。
+    #[error("未能证明横移运动或保护区间，整拍未提交")]
+    HandoffUnproven,
 }
 
 /// 路线注册或移除失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum RouteError {
+    /// 世界没有启用动态换道驾驶配置。
+    #[error("登记横向交接窗口需要显式换道驾驶配置")]
+    HandoffDisabled,
+    /// 交接声明的修订、出现顺序、方向或物理窗口未通过绑定。
+    #[error("路线的横向交接窗口无法绑定")]
+    InvalidHandoffWindow,
     /// 边序列为空。
     #[error("路线边序列不能为空")]
     EmptySequence,
@@ -219,13 +231,6 @@ pub enum RouteError {
     /// 走到机动入口，但剩余边序列对不上任何一条完整机动路径。
     #[error("路线对不上完整机动路径")]
     ManeuverMismatch,
-    /// 路线跨越本运行时构建不能安全执行的横向过渡段（固定预制过渡）：构建不支持
-    /// 过渡执行，或路线上的过渡段存在互不可见的共横向过渡段（#1220；#1321 后
-    /// 互不可见=无法以现行 P4/P5 证明允许路线分支互相覆盖，共享可选邻接边、
-    /// 可绕过的接力与多成员分量配对均构成拒绝）。注册失败关闭、注册表不变
-    /// （A6 选项 3：换道执行支持是实现能力，非配置）。
-    #[error("运行时不支持执行该横向过渡段")]
-    TransitionUnsupported,
     /// WaitingZone entry/release 的本地存储跨度不能证明为有限 `u32` 毫米。
     #[error("WaitingZone 本地存储跨度超出有限 u32 毫米范围")]
     WaitingStorageSpanUnbounded,
@@ -260,6 +265,9 @@ pub enum EntranceBodyError {
     /// 超出的车尾仍落在已建模的前驱上，路线没有包含。
     #[error("范围内车尾没有写进路线")]
     InDomainTail,
+    /// 静止插入的车身会跨越尚未执行的横向交接，缺少该处的双侧位置。
+    #[error("插入车身跨越路线交接窗口")]
+    HandoffStraddled,
 }
 
 /// `spawn_vehicle` 失败。
@@ -522,6 +530,9 @@ pub enum ParkingError {
     /// rebind 会改变车辆完整车身占用 footprint（`rebind_parking_route`）。
     #[error("rebind 会改变车辆完整车身占用 footprint")]
     RebindBodyFootprintMismatch,
+    /// 此停车操作需要的路线或物理空间仍受横移预约保护。
+    #[error("停车操作与横移预约或交接窗口冲突")]
+    HandoffConflict,
     /// leave 出口 anchor 与已提交车辆物理重叠（`leave_parking`）。
     #[error("leave 插入与已提交车辆发生物理重叠")]
     LeavePhysicalOverlap {

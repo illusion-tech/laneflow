@@ -244,8 +244,9 @@ extra_conflict_occurrences)` 对三项路线容量族一次性加余量（饱和
 > 对每个覆盖冲突 passage 的 admission Gate，车辆前端仍在线上或上游，或者车辆
 > route-local 车尾已经清除该 Gate 完整 coverage 的最远 clearance。
 
-车尾位置由候选 front cursor、`carry_um` 与实际 `VehicleProfile.length_mm` 沿同一
-compiled route occurrence sequence 向后计算。跨边时使用共享静态路网整数边长；重复
+车尾位置由候选车头的整数毫米进度与实际 `VehicleProfile.length_mm` 沿同一
+compiled route occurrence sequence 向后计算。车长和 clearance 均为整数毫米，先将
+车头向下取整再减车长恰好得到向下取整的车尾。跨边时使用共享静态路网整数边长；重复
 `LaneEdgeOrdinal` 仍按各自 route occurrence 处理。若车身伸到路线起点之前，车尾为
 `BeforeRouteStart`，小于任何 passage clearance；有限车尾位置也必须执行 §3 的边界
 规范化，不能把前一边末端与后一边零进度当成两个位置。
@@ -258,7 +259,7 @@ allowed = for every nonempty conflict Gate coverage:
     OR routeRear(candidateCursor, profile.length_mm) >= coverage.farthestClearance
 ```
 
-等于 clearance 表示车尾已经清除；提前一微米仍拒绝。不能只看前保险杠、当前 route
+车尾的整数毫米等于 clearance 即视为清空。车尾仍落在前一个毫米时，任意积分余数均拒绝。不能只看前保险杠、当前 route
 edge、第一处 passage 或“cursor 之后是否还有 entry”。低频生命周期入口按 route-local
 Gate range 检查；没有 conflict coverage 时无需此 authority。这个判定覆盖当前、后续、
 车身仍占用、循环和重复出现记录，允许在两段已清空/未进入的 coverage 之间合法绑定。
@@ -298,8 +299,8 @@ Active 时必须经过上表入口。
 路线冲突出现记录完全由有序 `LaneEdge StableId128` 序列和目标
 `SharedNetworkRevision` 确定，不进入 LFRS：
 
-- capture 仍只保存路线边稳定标识序列；
-- 现行 LFRS 7 保存 `WorldConfig` 容量并把它纳入 deterministic digest 8；
+- capture 保存路线边稳定标识序列及其已登记交接窗口；
+- 现行 LFRS 8 保存 `WorldConfig` 容量并把它纳入 deterministic digest 9；
 - restore 使用目标修订的唯一路线编译器重建出现记录，先核对 edge 与 conflict 两个总容量，
   再重建并验证 Active 车辆的 reservation、Gate side、物理 footprint 和历史，全部成功后
   才发布 world；
@@ -329,7 +330,7 @@ Active 时必须经过上表入口。
 - 前一边末端与后一边零进度的规范等价，非规范 cursor 失败关闭；
 - 同一 path 多 stream、多 passage、区间重叠、重复 Maneuver occurrence 与循环路线；
 - `finalConflictClearance` 不是最后 entry 的反例；
-- 不同车型长度及车尾在 clearance 前一微米、相等、后一微米；
+- 不同车型长度、车尾在 clearance 前一毫米或相等时的不同积分余数，以及跨边零点；
 - 上表全部生命周期入口、Parked/Completed 允许面和失败零副作用；
 - edge 容量与 conflict 容量分别达到 `max-1 / max / max+1`，checked overflow、分配
   failpoint、route removal 释放和三个路线注册入口共用计数；

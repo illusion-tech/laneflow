@@ -30,22 +30,22 @@ cargo run --locked -p laneflow-runtime --example headless
 - 四个容量是车辆、路线、路线边出现记录和路线冲突出现记录。它们进入快照和逻辑摘要。worker 数另由 `ExecutionConfig` 指定，不进入快照。
 - 新观测 session 的第一次导出必须是 Full。观测从当前已提交状态计算；失败不推进 session。
 - 生命周期命令只在两次 `step` 之间调用。命令失败不留下半条路线或半辆车。
-- `TrafficWorld::bind_route_handoffs` 为同一候选路线绑定一个或多个窗口。`preview_route_handoff_at` 按出现下标和车型试算。`sample_after_travel` 定位拍末的前杠和两侧车体；`preview_route_handoff_traffic` 可查询此时两侧的当前占用。`preview_route_handoff_approaches` 按整段后轴行程检查连续扫过范围，以及接近两侧的普通车辆能否安全停车。[路线试算合同][route-handoff]
+- `TrafficWorld::bind_route_handoffs` 为同一候选路线绑定一个或多个窗口。`preview_route_handoff_at` 按出现下标和车型试算。`sample_after_travel` 定位拍末的前杠和两侧车体，`preview_route_handoff_traffic` 可查询此时两侧的当前占用。`preview_route_handoff_approaches` 按整段后轴行程检查连续扫过范围及其他车辆能否安全停车，已在换道的车辆按已选轨迹核对。[路线试算合同][route-handoff]
 - 执行 panic 不是可恢复的 `StepError`。世界因此失效后，只能销毁并重建，不能继续查询或发命令。
 - dev-dependencies 已经启用 `laneflow-static-network` 的 `attestation-fixtures`，供其他测试使用。无窗口示例不调用这些测试入口。
 
-固定预构造换道、停车、快照和修订切换的拒绝条件见能力页与对应合同，不在这里列账。
+登记窗口内的动态换道、停车、快照和修订切换的拒绝条件见能力页与对应合同，不在这里列账。
 
 要预检一次动态横移能以多快的速度通过路侧实体，可在两拍之间调用
 `TrafficWorld::preview_route_handoff_speed_plan`。调用方用 `HandoffDrivingConfig`
 指定净空与速度控制点、几何分段跨度和行程精度。成功的计划按后轴实际三维行程
-列出局部限速。在后续试算中，`preview_braking_step` 读取确切的后轴累计行程、
+列出局部限速。在后续试算中，`preview_braking_step` 读取整数毫米的后轴累计行程、
 当前车速和纵向控制提出的拍末车速，给出符合车型服务制动能力的拍末车速与本拍
-行程上界。后轴位置只有上下界时用 `preview_braking_step_in`，以靠前的位置检查
+行程的整数毫米上界。后轴位置只有上下界时用 `preview_braking_step_in`，以靠前的位置检查
 来得及制动，以靠后的位置确认车尾已经离开。预检结果的 `motion` 区分整拍梯形运动与
 按车型服务减速度拍内停稳。可能越过候选终点时，`NeedsContinuation` 携带受当前候选
-限制的整拍提案和最小剩余行程，调用方仍须验证后继上的速度与位移才能提交。
-准备计划的几何工作只需执行一次，计划本身可多次查询。正式步进仍使用现行世界配置。
+限制的整拍提案和向下取整到毫米的最小剩余行程，调用方仍须验证后继上的速度与位移才能提交。
+准备计划的几何工作只需执行一次，计划本身可多次查询。正式步进通过 `RouteRegisterInput::with_handoffs` 登记窗口。`WorldConfig::with_handoff_driving` 为世界指定净空驾驶配置，`step_with_route_handoffs` 接收当拍申请；后续普通 `step` 继续执行已提交横移。
 
 ## 示例与验证
 

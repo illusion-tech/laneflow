@@ -158,11 +158,11 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/f930a7c03f48c9854d68e1a30c0cd6f2f458a5892c67662c2c93a3256e123fb3"
+        "sha256/7d1b50cbc43f3e6f2ee39d5540aebae1eb4ce9303c0b4a07190556894cbd6b26"
     );
     assert_eq!(
         base.canonical_artifact().object_key(),
-        "sha256/feceebd820241e91e47d5edfe96156c836547ae117c1c55129470e993a2bd32a"
+        "sha256/d8552bc444d5ebd9c59e6b589d68234747d246604f3aca0ede2b7b0acb8b2a57"
     );
     assert_eq!(
         base.canonical_artifact().byte_length(),
@@ -170,7 +170,7 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         target.canonical_artifact().object_key(),
-        "sha256/f9872769f7b9c9e6911094d8aa76f057fd4a584e721a02ff2a105d43025c3820"
+        "sha256/cf3eb5d84f05fb489a9328183ce20af1f7a94042f47e5fe9f4604a4a4089a1fa"
     );
     assert_eq!(
         target.canonical_artifact().byte_length(),

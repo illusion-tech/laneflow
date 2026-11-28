@@ -14,7 +14,7 @@ const INVALID: BuildError = BuildError::InputInvariant {
     structure: STRUCTURE,
 };
 
-fn number(row: RegistryCheckedRowView<'_>, tag: u16) -> Result<u64, BuildError> {
+fn distance_mm(row: RegistryCheckedRowView<'_>, tag: u16) -> Result<u64, BuildError> {
     match checked_field(row, tag, STRUCTURE)? {
         RegistryCheckedFieldValue::U64(n) => Ok(n),
         _ => Err(INVALID),
@@ -22,6 +22,9 @@ fn number(row: RegistryCheckedRowView<'_>, tag: u16) -> Result<u64, BuildError> 
 }
 fn index(row: RegistryCheckedRowView<'_>, tag: u16) -> Result<u32, BuildError> {
     checked_u32(row, tag, STRUCTURE)
+}
+fn offset_mm(row: RegistryCheckedRowView<'_>, tag: u16) -> Result<i32, BuildError> {
+    checked_i32(row, tag, STRUCTURE)
 }
 fn check(ok: bool) -> Result<(), BuildError> {
     if ok { Ok(()) } else { Err(INVALID) }
@@ -159,7 +162,7 @@ pub(crate) fn build(
         last = Some(c);
         let first = index(row, 5)?;
         let count = index(row, 6)?;
-        let length = number(row, 3)?;
+        let length = distance_mm(row, 3)?;
         validate(
             at,
             first as usize == stations.len()
@@ -167,13 +170,15 @@ pub(crate) fn build(
                 && first
                     .checked_add(count)
                     .is_some_and(|n| n <= anchors.row_count())
-                && number(row, 2)?.checked_add(length).is_some(),
+                && distance_mm(row, 2)?
+                    .checked_add(length)
+                    .is_some_and(|end| end <= StationSpan::MAX_DISTANCE_MM),
         )?;
         for i in 0..count {
             poll_cancelled(options, i)?;
             let anchor_at = mapping_row(2, first + i);
             let anchor = anchor_rows.next().ok_or(anchor_at)?;
-            let s = number(anchor, 1)?;
+            let s = distance_mm(anchor, 1)?;
             validate(
                 anchor_at,
                 if i == 0 {
@@ -189,9 +194,9 @@ pub(crate) fn build(
         }
         validate(at, stations.last() == Some(&length))?;
         domains[c as usize] = Some(StationDomain {
-            origin_nm: number(row, 2)?,
-            length_nm: length,
-            origin_error_nm: index(row, 4)?,
+            origin_mm: distance_mm(row, 2)?,
+            length_mm: length,
+            origin_error_mm: index(row, 4)?,
         });
         ranges[c as usize] = Some(RangeU32::new(first, count));
         let ord = RoadCorridorOrdinal::try_from_usize(c as usize).map_err(|_| INVALID)?;
@@ -268,13 +273,13 @@ pub(crate) fn build(
                 let span_at = mapping_row(5, segments.len() as u32);
                 let row = span_rows.next().ok_or(span_at)?;
                 let end = index(row, 1)?;
-                let q = number(row, 2)?;
+                let q = distance_mm(row, 2)?;
                 validate(
                     span_at,
                     (low..=high).contains(&end)
                         && if forward { end > anchor } else { end < anchor },
                 )?;
-                let map = StationSpan::try_new(
+                let map = StationSpan::try_from_millimetres(
                     [stations[anchor as usize], stations[end as usize]],
                     [p, q],
                     index(row, 3)?,
@@ -283,10 +288,7 @@ pub(crate) fn build(
                 )
                 .map_err(|_| span_at)?;
                 if i + 1 == n {
-                    validate(
-                        span_at,
-                        map.progress_mm_at(stations[end as usize]) == Some(u64::from(length_mm)),
-                    )?
+                    validate(span_at, map.progress_mm()[1] == u64::from(length_mm))?
                 }
                 segments.push(Segment { edge, map });
                 anchor = end;
@@ -341,15 +343,9 @@ pub(crate) fn build(
         band_index.push(Band {
             ordinal: ord,
             corridor: c,
-            left_um: [
-                checked_i32(row, 4, STRUCTURE)?,
-                checked_i32(row, 6, STRUCTURE)?,
-            ],
-            right_um: [
-                checked_i32(row, 5, STRUCTURE)?,
-                checked_i32(row, 7, STRUCTURE)?,
-            ],
-            error_nm: index(row, 8)?,
+            left_mm: [offset_mm(row, 4)?, offset_mm(row, 6)?],
+            right_mm: [offset_mm(row, 5)?, offset_mm(row, 7)?],
+            error_mm: index(row, 8)?,
         });
     }
     let mut named = allocate_vec(extents.row_count(), STRUCTURE)?;
@@ -407,8 +403,8 @@ pub(crate) fn build(
             corridor: c,
             left_index: left,
             kind: shape,
-            stations_nm: [stations[lo as usize], stations[hi as usize]],
-            errors_nm: [errors[lo as usize], errors[hi as usize]],
+            stations_mm: [stations[lo as usize], stations[hi as usize]],
+            errors_mm: [errors[lo as usize], errors[hi as usize]],
             name: key_bytes,
             name_len: name.len() as u8,
             payload: None,

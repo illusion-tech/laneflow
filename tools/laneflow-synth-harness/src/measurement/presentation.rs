@@ -56,6 +56,7 @@ impl Presentation {
         let driver = ecs.resource::<Driver>();
         require(
             session.consumption_context_is_current(self.poses.context())
+                && self.poses.tick() == session.world().tick_index()
                 && self.poses.batch().placement_token() == token
                 && self.poses.batch().network_revision()
                     == Some(session.world().revision().network_revision())

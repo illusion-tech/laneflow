@@ -101,7 +101,6 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
         }
         Case::LaneChange(params) => {
             let slots = params.changers_per_cluster;
-            // 与 state.rs 共用单一事实源（#1233 对象 b/F1）。
             let changers: Vec<serde_json::Value> = (0..params.clusters)
                 .flat_map(|cluster| {
                     (0..slots).map(move |slot| {
@@ -109,8 +108,8 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
                             "cluster": cluster,
                             "logical_rank": identity.scale + cluster * slots + slot,
                             "edge_occurrence": 0,
-                            "progress_mm": crate::lane_change_slot_progress_mm(slots, slot),
-                            "speed_mm_per_s": 10_000,
+                            "progress_mm": crate::HANDOFF_FRONT_MM,
+                            "speed_mm_per_s": crate::HANDOFF_SPEED_MM_S[slot as usize],
                             "role": if slot == 0 { "leader" } else { "follower" }
                         })
                     })
@@ -118,19 +117,17 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
                 .collect();
             rules.push(json!({
                 "kind":"lane_change_competition",
-                "scenario":"R1b_s12_two_changer_stable_order",
-                "transition_segments": params.clusters,
-                "changers_per_cluster": slots,
-                "changers": changers,
-                "premise":"both_changers_can_yield_d_stop_15_61m_at_10m_per_s",
-                "layer_1":"tick_0_stable_live_order_priority_no_persisted_reservation",
-                "layer_2":"leader_crossing_exactly_once_then_follower_after_rear_clearance",
-                "exactly_one_in_T_per_tick":true,
-                "loser":"no_grant_wait_before_T_entrance",
-                "reservation_lifecycle":["requested","staged","committed","released"],
-                "release_criterion":"rear_over_T_clearance",
-                "persistence_boundary":"capture_structurally_refused_after_first_T_authority_1217",
-                "identity_comparison":"real_resource_identity_and_history_not_error_digests"
+                "scenario":"opposing_outer_lanes_compete_for_center_lane",
+                "clusters":params.clusters,
+                "registered_handoffs":params.clusters * slots,
+                "changers_per_cluster":slots,
+                "changers":changers,
+                "first_step":"submit_both_routes_in_the_same_fixed_step",
+                "winner":"stable_live_order",
+                "loser":"retry_once_against_committed_protection_then_from_its_current_front_after_release",
+                "release_criterion":"whole_body_clear_of_source",
+                "observations":["acquired","front_handed_off","released"],
+                "persistence_boundary":"same_revision_snapshot_during_handoff_and_after_both_release"
             }));
         }
     }
@@ -149,7 +146,7 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
     if identity.lane_change().is_some() {
         rules.push(json!({
             "kind":"failed_step_retry", "build":"optimized_test_only",
-            "trigger":"leader_reservation_establishing_step",
+            "trigger":"first_committed_dynamic_handoff",
             "failpoint":["StepFailpoint::AfterGrants","StepFailpoint::AfterTransitions"],
             "error":"StepError::ParkingObservationAllocFailed",
             "capture":"post_command_pre_step_state_and_canonical_snapshot",
@@ -166,6 +163,12 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
             "fixed_step",
             "consume_ordered_events",
             "enqueue_next_boundary_plans",
+        ]
+    } else if identity.lane_change().is_some() {
+        vec![
+            "requests_from_committed_fronts",
+            "fixed_step",
+            "consume_ordered_events",
         ]
     } else {
         vec![

@@ -18,6 +18,7 @@ use laneflow_static_contract::{
 };
 use thiserror::Error;
 
+use crate::kernel::conflict::RelativeDownstreamEnd;
 use crate::kernel::tables::CompiledRoute;
 use crate::{
     ManeuverTraversalPhase, ParkingBinding, ParkingTarget, RouteHandle, VehicleHandle,
@@ -76,6 +77,8 @@ const TAG_VEHICLE_REPLACED: u8 = 5;
 const TAG_VEHICLE_PARKING_UPDATED: u8 = 6;
 const TAG_VEHICLE_PARKING_SPAWNED: u8 = 7;
 const TAG_VEHICLE_DESPAWNED: u8 = 8;
+const TAG_ROUTE_REGISTERED_WITH_HANDOFFS: u8 = 9;
+const HANDOFF_WINDOW_BYTES: usize = 4 + 1 + 4 + 4 + 8 + 8;
 
 // 状态封闭 u8 编码（与快照摘要 §6 的车辆记录一致）。
 const STATUS_ACTIVE: u8 = 1;
@@ -91,7 +94,7 @@ pub(crate) const CONFLICT_OCCURRENCE_JOURNAL_BYTES: usize = 9 * 4;
 pub(crate) const CONFLICT_ELIGIBILITY_DELTA_BYTES: usize =
     4 + 4 + 1 + CONFLICT_OCCURRENCE_JOURNAL_BYTES + 8;
 /// 单条 Conflict authority 增量记录头的固定字节宽度。
-pub(crate) const CONFLICT_AUTHORITY_HEADER_BYTES: usize = 4 + 4 + 1 + 8 + 4;
+pub(crate) const CONFLICT_AUTHORITY_HEADER_BYTES: usize = 4 + 4 + 1 + 8 + 4 + 4 + 4;
 /// 单个 Conflict authority 单元增量的固定字节宽度。
 pub(crate) const CONFLICT_AUTHORITY_CELL_BYTES: usize = CONFLICT_OCCURRENCE_JOURNAL_BYTES + 1;
 /// 单条 Conflict lag 增量的固定字节宽度。
@@ -124,6 +127,7 @@ pub(crate) struct ConflictEligibilityJournalDelta {
 pub(crate) struct ConflictAuthorityJournalDelta<'a> {
     pub(crate) owner: VehicleHandle,
     pub(crate) acquired_tick: Option<u64>,
+    pub(crate) downstream_end: Option<RelativeDownstreamEnd>,
     pub(crate) cells: &'a [u8],
 }
 
@@ -219,64 +223,18 @@ std::thread_local! {
 crate::kernel::execution::carry_hooks!(carry_test_hooks: VEHICLE_DELTA_MATERIALIZATIONS);
 
 impl VehicleDelta {
-    /// 迁移日志增量是否可忠实编码（#1217 D4 入口级拒绝判据）。
-    ///
-    /// 与 [`Self::from_state`] 的前置条件同界，并多一层归属≠身份拦截：
-    /// traversal 存在时其 occurrence 必须存在、phase hop 必须解析到真实
-    /// Gate，且该 hop 不得覆盖过渡资源出现记录（含混合 hop）——迁移日志的
-    /// `phase_gate` 槽表达不了资源种类与 T 稳定边身份，巧合解析到的其他
-    /// 机动 Gate 不是本遍历的身份。Waiting membership 的 entry/release hop
-    /// 属等待域（注册期编译校验的真实 Gate），不涉过渡资源。
-    pub(crate) fn journalable(state: &VehicleState, compiled: Option<&CompiledRoute>) -> bool {
-        let Some(traversal) = state.maneuver_traversal else {
-            return true;
-        };
-        let Some(compiled) = compiled else {
-            return false;
-        };
-        if compiled
-            .maneuvers
-            .get(traversal.maneuver_occurrence_index as usize)
-            .is_none()
-        {
-            return false;
-        }
-        let phase_hop = match traversal.phase {
-            ManeuverTraversalPhase::PreGate { next_gate_hop } => next_gate_hop,
-            ManeuverTraversalPhase::Committed {
-                last_crossed_gate_hop,
-            } => last_crossed_gate_hop,
-            ManeuverTraversalPhase::Waiting { release_gate_hop } => release_gate_hop,
-            ManeuverTraversalPhase::Clearing { admission_gate_hop } => admission_gate_hop,
-        };
-        if compiled.admission_hop_transition_covered(traversal.maneuver_occurrence_index, phase_hop)
-        {
-            return false;
-        }
-        compiled
-            .hop_gate
-            .get(usize::try_from(phase_hop).unwrap_or(usize::MAX))
-            .copied()
-            .flatten()
-            .is_some()
-    }
-
-    /// 从已提交车辆状态提取增量。
-    ///
-    /// # Panics
-    ///
-    /// 前置条件（入口级保证，#1217 D4）：全部调用方先过 [`Self::journalable`]，
-    /// 无法忠实编码的过渡态增量不得进入本函数；命中前置条件破坏（traversal
-    /// occurrence / phase Gate 无法解析、Waiting membership 形状破坏）即 panic。
-    pub(crate) fn from_state(state: &VehicleState, compiled: Option<&CompiledRoute>) -> Self {
+    /// 从已提交状态提取迁移增量。遍历或等待成员无法解析到实际出现和 Gate 时失败。
+    pub(crate) fn from_state(
+        state: &VehicleState,
+        compiled: Option<&CompiledRoute>,
+    ) -> Option<Self> {
         #[cfg(test)]
         VEHICLE_DELTA_MATERIALIZATIONS.with(|count| count.set(count.get() + 1));
-        let authority = state.maneuver_traversal.map(|traversal| {
-            let compiled = compiled.expect("Waiting traversal route is compiled");
+        let authority = if let Some(traversal) = state.maneuver_traversal {
+            let compiled = compiled?;
             let maneuver = compiled
                 .maneuvers
-                .get(traversal.maneuver_occurrence_index as usize)
-                .expect("Waiting traversal occurrence exists");
+                .get(traversal.maneuver_occurrence_index as usize)?;
             let (traversal_phase, phase_hop) = match traversal.phase {
                 ManeuverTraversalPhase::PreGate { next_gate_hop } => (1, next_gate_hop),
                 ManeuverTraversalPhase::Committed {
@@ -285,42 +243,43 @@ impl VehicleDelta {
                 ManeuverTraversalPhase::Waiting { release_gate_hop } => (3, release_gate_hop),
                 ManeuverTraversalPhase::Clearing { admission_gate_hop } => (4, admission_gate_hop),
             };
-            // 入口级拒绝保证（`Self::journalable`）：过渡资源 hop（含混合
-            // hop）已在迁移域入口结构化拒绝，此处只是前置断言。
             let phase_gate = compiled
                 .hop_gate
                 .get(phase_hop as usize)
                 .copied()
-                .flatten()
-                .expect("journalable traversal phase hop resolves Gate");
-            (
+                .flatten()?;
+            Some((
                 maneuver.entry_route_edge_index,
                 maneuver.path,
                 traversal_phase,
                 phase_gate,
-            )
-        });
-        let membership = state.waiting_membership.map(|membership| {
-            let traversal = state
-                .maneuver_traversal
-                .expect("Waiting membership has traversal");
-            let compiled = compiled.expect("Waiting membership route is compiled");
-            let occurrence = compiled
-                .waiting
-                .iter()
-                .find(|occurrence| {
-                    occurrence.maneuver_index == traversal.maneuver_occurrence_index
-                        && occurrence.zone == membership.waiting_zone
-                        && occurrence.release_hop == membership.release_hop
-                })
-                .expect("Waiting membership occurrence exists");
-            let entry_gate = compiled.hop_gate[occurrence.entry_hop as usize]
-                .expect("Waiting entry hop resolves Gate");
-            let release_gate = compiled.hop_gate[occurrence.release_hop as usize]
-                .expect("Waiting release hop resolves Gate");
-            (membership, entry_gate, release_gate)
-        });
-        Self {
+            ))
+        } else {
+            None
+        };
+        let membership = if let Some(membership) = state.waiting_membership {
+            let traversal = state.maneuver_traversal?;
+            let compiled = compiled?;
+            let occurrence = compiled.waiting.iter().find(|occurrence| {
+                occurrence.maneuver_index == traversal.maneuver_occurrence_index
+                    && occurrence.zone == membership.waiting_zone
+                    && occurrence.release_hop == membership.release_hop
+            })?;
+            let entry_gate = compiled
+                .hop_gate
+                .get(occurrence.entry_hop as usize)
+                .copied()
+                .flatten()?;
+            let release_gate = compiled
+                .hop_gate
+                .get(occurrence.release_hop as usize)
+                .copied()
+                .flatten()?;
+            Some((membership, entry_gate, release_gate))
+        } else {
+            None
+        };
+        Some(Self {
             slot: state.handle().index(),
             generation: state.handle().generation(),
             profile: state.profile().raw(),
@@ -343,7 +302,7 @@ impl VehicleDelta {
             entry_gate: membership.map_or(0, |value| value.1.raw()),
             release_gate: membership.map_or(0, |value| value.2.raw()),
             admission_sequence: membership.map_or(0, |value| value.0.admission_sequence),
-        }
+        })
     }
 
     fn encode(&self, out: &mut Vec<u8>) {
@@ -652,6 +611,8 @@ pub(crate) enum JournalRecord<'a> {
         generation: u32,
         /// 4 字节步长的边序数原始值流。
         edges: &'a [u8],
+        /// 源修订的有序窗口流，由 `handoff_window_stream` 读回。
+        windows: &'a [u8],
     },
     /// 路线移除（仅无引用路线可成功）。
     RouteRemoved {
@@ -713,9 +674,9 @@ pub(crate) struct MigrationDeltaJournal {
     bytes: Vec<u8>,
     byte_bound: u64,
     overflowed: bool,
-    /// 粘性拒绝（#1217 D4）：增量含无法忠实编码的过渡状态（迁移日志的
-    /// `phase_gate` 槽表达不了资源种类与 T 稳定边身份），日志自此不可解码。
-    unsupported_transition_state: Option<crate::UnsupportedTransitionState>,
+    /// 首条无法解析到已登记路线及 Gate 的车辆增量会终止日志。
+    invalid_vehicle: Option<u32>,
+    active_handoff: bool,
     record_count: u64,
     first_tick: Option<u64>,
     last_tick: Option<u64>,
@@ -742,7 +703,8 @@ impl MigrationDeltaJournal {
             bytes,
             byte_bound: _,
             overflowed: _,
-            unsupported_transition_state: _,
+            invalid_vehicle: _,
+            active_handoff: _,
             record_count: _,
             first_tick: _,
             last_tick: _,
@@ -783,7 +745,8 @@ impl MigrationDeltaJournal {
             bytes,
             byte_bound,
             overflowed: false,
-            unsupported_transition_state: None,
+            invalid_vehicle: None,
+            active_handoff: false,
             record_count: 0,
             first_tick: None,
             last_tick: None,
@@ -806,23 +769,21 @@ impl MigrationDeltaJournal {
         self.overflowed
     }
 
-    /// 已拒绝的过渡状态种类（粘性；#1217 D4）。`Some` 即日志不可解码，
-    /// 事务按失败整体放弃，旧世界不受影响。
-    pub(crate) const fn unsupported_transition_state(
-        &self,
-    ) -> Option<crate::UnsupportedTransitionState> {
-        self.unsupported_transition_state
+    pub(crate) const fn invalid_vehicle(&self) -> Option<u32> {
+        self.invalid_vehicle
     }
 
-    /// 粘性拒绝一条无法忠实编码的过渡状态增量（#1217 D4）：不写任何替代
-    /// 行（不得以巧合 Gate 顶替、不得静默丢弃），日志自此终止、不可解码。
-    pub(crate) fn refuse_unsupported_transition_state(
-        &mut self,
-        kind: crate::UnsupportedTransitionState,
-    ) {
-        if self.unsupported_transition_state.is_none() {
-            self.unsupported_transition_state = Some(kind);
-        }
+    pub(crate) fn refuse_invalid_vehicle(&mut self, slot: u32) {
+        self.invalid_vehicle.get_or_insert(slot);
+    }
+
+    /// 追赶期间一旦出现已提交的横移，整次接管失效，包括同拍已经清空的情形。
+    pub(crate) fn mark_active_handoff(&mut self) {
+        self.active_handoff = true;
+    }
+
+    pub(crate) const fn active_handoff(&self) -> bool {
+        self.active_handoff
     }
 
     /// 已写入字节数。
@@ -852,11 +813,7 @@ impl MigrationDeltaJournal {
 
     /// 宿主可观测统计快照：滞后、字节占用、溢出与覆盖区间下界。
     ///
-    /// 形状契约（#1217 红线事件记录）：本结构的 `Debug` 形状是等值轨迹摘要
-    /// 冻结面（`phase_equivalence` → `tests/fixtures/phase-protocol-e011745e.txt`），
-    /// **不得新增可观测字段**；粘性过渡态拒绝经
-    /// [`Self::unsupported_transition_state`] 与事务失败路径
-    /// （`CutoverError::UnsupportedTransitionState`）观测。
+    /// 该统计的可观测字段由步进等值轨迹测试核对。
     #[must_use]
     pub fn stats(&self) -> MigrationJournalStats {
         MigrationJournalStats {
@@ -878,8 +835,8 @@ impl MigrationDeltaJournal {
             "overflowed migration journal must be abandoned, not decoded"
         );
         assert!(
-            self.unsupported_transition_state.is_none(),
-            "transition-refused migration journal must be abandoned, not decoded"
+            self.invalid_vehicle.is_none(),
+            "journal with an invalid vehicle must be abandoned, not decoded"
         );
         assert!(
             offset <= self.bytes.len(),
@@ -897,7 +854,7 @@ impl MigrationDeltaJournal {
 
     /// 预检并粘性置位溢出。返回 `false` 时调用方必须丢弃本条记录。
     fn ensure(&mut self, needed: usize) -> bool {
-        if self.overflowed || self.unsupported_transition_state.is_some() {
+        if self.overflowed || self.invalid_vehicle.is_some() {
             return false;
         }
         if self.remaining() < needed {
@@ -1016,6 +973,8 @@ impl MigrationDeltaJournal {
         put_u8(&mut self.bytes, 0);
         put_u64(&mut self.bytes, 0);
         put_u32(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
         self.open_tick_conflict_authorities = self.open_tick_conflict_authorities.saturating_add(1);
     }
 
@@ -1024,6 +983,7 @@ impl MigrationDeltaJournal {
         &mut self,
         owner: VehicleHandle,
         acquired_tick: u64,
+        downstream_end: RelativeDownstreamEnd,
         cells: I,
     ) where
         I: ExactSizeIterator<Item = (ConflictOccurrenceJournalLocator, u8)>,
@@ -1047,6 +1007,8 @@ impl MigrationDeltaJournal {
             &mut self.bytes,
             u32::try_from(cell_count).unwrap_or(u32::MAX),
         );
+        put_u32(&mut self.bytes, downstream_end.relative_hop_offset);
+        put_u32(&mut self.bytes, downstream_end.progress_mm);
         for (locator, stage) in cells {
             locator.encode(&mut self.bytes);
             put_u8(&mut self.bytes, stage);
@@ -1063,12 +1025,8 @@ impl MigrationDeltaJournal {
         if self.open_tick_count_at.is_none() || !self.ensure(CONFLICT_LAG_DELTA_BYTES) {
             return;
         }
-        let Some(zone) = address.static_zone() else {
-            // S4 规则：过渡资源不入迁移日志（G2③ 持久边界失败关闭）。
-            return;
-        };
         put_u32(&mut self.bytes, address.stream().raw());
-        put_u32(&mut self.bytes, zone.raw());
+        put_u32(&mut self.bytes, address.zone().raw());
         put_u32(&mut self.bytes, address.passage_local_index());
         match reference {
             crate::ConflictLagReference::NoHistory => {
@@ -1133,20 +1091,53 @@ impl MigrationDeltaJournal {
         command_cursor: u64,
         route: RouteHandle,
         edges: &[LaneEdgeOrdinal],
+        windows: &[crate::RouteHandoffOccurrence],
     ) {
         let edge_count =
             u32::try_from(edges.len()).expect("route edge count fits journal u32 count");
-        let needed = 1 + 8 + 4 + 4 + 4 + 4 * edges.len();
+        let window_bytes = if windows.is_empty() {
+            0
+        } else {
+            4usize.saturating_add(HANDOFF_WINDOW_BYTES.saturating_mul(windows.len()))
+        };
+        let needed = 21usize
+            .saturating_add(4usize.saturating_mul(edges.len()))
+            .saturating_add(window_bytes);
         if !self.ensure(needed) {
             return;
         }
-        put_u8(&mut self.bytes, TAG_ROUTE_REGISTERED);
+        put_u8(
+            &mut self.bytes,
+            if windows.is_empty() {
+                TAG_ROUTE_REGISTERED
+            } else {
+                TAG_ROUTE_REGISTERED_WITH_HANDOFFS
+            },
+        );
         put_u64(&mut self.bytes, command_cursor);
         put_u32(&mut self.bytes, route.index());
         put_u32(&mut self.bytes, route.generation());
         put_u32(&mut self.bytes, edge_count);
         for edge in edges {
             put_u32(&mut self.bytes, edge.raw());
+        }
+        if !windows.is_empty() {
+            put_u32(
+                &mut self.bytes,
+                u32::try_from(windows.len()).expect("window count is bounded by route occurrences"),
+            );
+            for window in windows {
+                let (kind, owner) = match window.owner {
+                    laneflow_static_network::BoundaryOwner::Corridor(owner) => (1, owner.raw()),
+                    laneflow_static_network::BoundaryOwner::Section(owner) => (2, owner.raw()),
+                };
+                put_u32(&mut self.bytes, window.source_index);
+                put_u8(&mut self.bytes, kind);
+                put_u32(&mut self.bytes, owner);
+                put_u32(&mut self.bytes, window.left_index);
+                put_u64(&mut self.bytes, window.stations_mm[0]);
+                put_u64(&mut self.bytes, window.stations_mm[1]);
+            }
         }
         self.record_count += 1;
     }
@@ -1342,6 +1333,10 @@ impl<'a> Iterator for ConflictAuthorityJournalIter<'a> {
         Some(ConflictAuthorityJournalDelta {
             owner,
             acquired_tick: present.then_some(acquired_tick),
+            downstream_end: present.then(|| RelativeDownstreamEnd {
+                relative_hop_offset: read_u32(header, 21),
+                progress_mm: read_u32(header, 25),
+            }),
             cells,
         })
     }
@@ -1380,6 +1375,31 @@ pub(crate) fn conflict_lag_delta_stream(
             tag => panic!("unknown Conflict lag journal tag {tag}"),
         };
         ConflictLagJournalDelta { address, reference }
+    })
+}
+
+pub(crate) fn handoff_window_stream(
+    bytes: &[u8],
+    revision: laneflow_static_contract::NetworkRevisionId,
+) -> impl ExactSizeIterator<Item = crate::RouteHandoffOccurrence> + '_ {
+    let (rows, remainder) = bytes.as_chunks::<HANDOFF_WINDOW_BYTES>();
+    debug_assert!(remainder.is_empty());
+    rows.iter().map(move |row| {
+        use laneflow_static_contract::{RoadCorridorOrdinal, RoadSectionOrdinal};
+        use laneflow_static_network::BoundaryOwner;
+        let raw = read_u32(row, 5);
+        let owner = match row[4] {
+            1 => BoundaryOwner::Corridor(RoadCorridorOrdinal::from_raw(raw)),
+            2 => BoundaryOwner::Section(RoadSectionOrdinal::from_raw(raw)),
+            _ => unreachable!("unknown journal window owner"),
+        };
+        crate::RouteHandoffOccurrence {
+            revision,
+            source_index: read_u32(row, 0),
+            owner,
+            left_index: read_u32(row, 9),
+            stations_mm: [read_u64(row, 13), read_u64(row, 21)],
+        }
     })
 }
 
@@ -1469,7 +1489,7 @@ impl<'a> Iterator for RecordIter<'a> {
                     conflict_lags,
                 }
             }
-            TAG_ROUTE_REGISTERED => {
+            TAG_ROUTE_REGISTERED | TAG_ROUTE_REGISTERED_WITH_HANDOFFS => {
                 let command_cursor = read_u64(rest, at);
                 at += 8;
                 let slot = read_u32(rest, at);
@@ -1481,11 +1501,22 @@ impl<'a> Iterator for RecordIter<'a> {
                 let edges_len = count * 4;
                 let edges = rest.get(at..at + edges_len).expect("edges within journal");
                 at += edges_len;
+                let windows = if tag == TAG_ROUTE_REGISTERED_WITH_HANDOFFS {
+                    let count = read_u32(rest, at) as usize;
+                    at += 4;
+                    let len = count * HANDOFF_WINDOW_BYTES;
+                    let rows = &rest[at..at + len];
+                    at += len;
+                    rows
+                } else {
+                    &rest[at..at]
+                };
                 JournalRecord::RouteRegistered {
                     command_cursor,
                     slot,
                     generation,
                     edges,
+                    windows,
                 }
             }
             TAG_ROUTE_REMOVED => {
@@ -1880,6 +1911,58 @@ mod tests {
     }
 
     #[test]
+    fn registered_windows_round_trip_in_order_and_fit_the_byte_budget_atomically() {
+        use laneflow_static_contract::{
+            NetworkRevisionId, RoadCorridorOrdinal, RoadSectionOrdinal, Sha256Digest,
+        };
+        use laneflow_static_network::BoundaryOwner;
+        let revision = NetworkRevisionId::from_digest(Sha256Digest::ZERO);
+        let first = crate::RouteHandoffOccurrence {
+            revision,
+            source_index: 0,
+            owner: BoundaryOwner::Corridor(RoadCorridorOrdinal::from_raw(19)),
+            left_index: 2,
+            stations_mm: [4_000, 6_000],
+        };
+        let second = crate::RouteHandoffOccurrence {
+            source_index: 2,
+            owner: BoundaryOwner::Section(RoadSectionOrdinal::from_raw(77)),
+            ..first
+        };
+        let edges = [11, 12, 11, 12].map(LaneEdgeOrdinal::from_raw);
+        let record_bytes = 21 + edges.len() * 4 + 4 + 2 * HANDOFF_WINDOW_BYTES;
+        for budget in [record_bytes, record_bytes - 1] {
+            let mut journal = MigrationDeltaJournal::arm(budget as u64, 0).unwrap();
+            journal.record_route_registered(1, RouteHandle::new(0, 0), &edges, &[first, second]);
+            if budget < record_bytes {
+                assert!(journal.overflowed());
+                assert_eq!(journal.written_bytes(), 0);
+                assert_eq!(journal.record_count, 0);
+                continue;
+            }
+            assert_eq!(journal.written_bytes(), record_bytes as u64);
+            let mut records = journal.records_from(0);
+            let Some(JournalRecord::RouteRegistered {
+                windows,
+                edges: encoded_edges,
+                ..
+            }) = records.next()
+            else {
+                panic!("expected registered route")
+            };
+            assert_eq!(
+                raw_u32_stream(encoded_edges).collect::<Vec<_>>(),
+                [11, 12, 11, 12]
+            );
+            assert_eq!(
+                handoff_window_stream(windows, revision).collect::<Vec<_>>(),
+                [first, second]
+            );
+            assert!(records.next().is_none());
+        }
+    }
+
+    #[test]
     fn journal_record_roundtrip_all_kinds() {
         let mut journal = MigrationDeltaJournal::arm(4_096, 5).expect("arm");
         let delta = sample_delta(3, 1);
@@ -1892,6 +1975,7 @@ mod tests {
             6,
             RouteHandle::new(2, 4),
             &[LaneEdgeOrdinal::from_raw(11), LaneEdgeOrdinal::from_raw(12)],
+            &[],
         );
         journal.record_route_removed(7, 2, true, 5);
         journal.record_vehicle_spawned(8, sample_delta(6, 0));
@@ -1946,11 +2030,13 @@ mod tests {
             slot,
             generation,
             edges,
+            windows,
         } = records[2]
         else {
             panic!("expected route record");
         };
         assert_eq!((command_cursor, slot, generation), (6, 2, 4));
+        assert!(windows.is_empty());
         assert_eq!(raw_u32_stream(edges).collect::<Vec<_>>(), vec![11, 12]);
         assert_eq!(
             records[3],

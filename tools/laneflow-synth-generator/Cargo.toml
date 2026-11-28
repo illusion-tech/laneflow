@@ -7,10 +7,15 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+runtime = ["dep:laneflow-runtime", "dep:laneflow-static-network"]
+
 [dependencies]
 laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }
 laneflow-format = { version = "0.0.0", path = "../../crates/laneflow-format" }
+laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime", optional = true }
 laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
+laneflow-static-network = { version = "0.0.0", path = "../../crates/laneflow-static-network", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 sha2 = { version = "0.11", default-features = false }

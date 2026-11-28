@@ -10,7 +10,7 @@ pub mod lane_flow {
 pub mod runtime_snapshot {
 
 #[allow(unused_imports, dead_code)]
-pub mod v7 {
+pub mod v8 {
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
@@ -554,6 +554,190 @@ impl<'a> ::flatbuffers::Verifiable for WorldPolicySelectionKind {
 
 impl ::flatbuffers::SimpleToVerifyInSlice for WorldPolicySelectionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_HANDOFF_MODE: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_HANDOFF_MODE: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_HANDOFF_MODE: [HandoffMode; 3] = [
+  HandoffMode::Unspecified,
+  HandoffMode::Disabled,
+  HandoffMode::Enabled,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct HandoffMode(pub u8);
+#[allow(non_upper_case_globals)]
+impl HandoffMode {
+  pub const Unspecified: Self = Self(0);
+  pub const Disabled: Self = Self(1);
+  pub const Enabled: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::Disabled,
+    Self::Enabled,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::Disabled => Some("Disabled"),
+      Self::Enabled => Some("Enabled"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for HandoffMode {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for HandoffMode {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for HandoffMode {
+    type Output = HandoffMode;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for HandoffMode {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for HandoffMode {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for HandoffMode {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_HANDOFF_PROTECTION_ROLE: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_HANDOFF_PROTECTION_ROLE: u8 = 4;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_HANDOFF_PROTECTION_ROLE: [HandoffProtectionRole; 5] = [
+  HandoffProtectionRole::Unspecified,
+  HandoffProtectionRole::Source,
+  HandoffProtectionRole::Target,
+  HandoffProtectionRole::Sweep,
+  HandoffProtectionRole::Downstream,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct HandoffProtectionRole(pub u8);
+#[allow(non_upper_case_globals)]
+impl HandoffProtectionRole {
+  pub const Unspecified: Self = Self(0);
+  pub const Source: Self = Self(1);
+  pub const Target: Self = Self(2);
+  pub const Sweep: Self = Self(3);
+  pub const Downstream: Self = Self(4);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 4;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::Source,
+    Self::Target,
+    Self::Sweep,
+    Self::Downstream,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::Source => Some("Source"),
+      Self::Target => Some("Target"),
+      Self::Sweep => Some("Sweep"),
+      Self::Downstream => Some("Downstream"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for HandoffProtectionRole {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for HandoffProtectionRole {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for HandoffProtectionRole {
+    type Output = HandoffProtectionRole;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for HandoffProtectionRole {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for HandoffProtectionRole {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for HandoffProtectionRole {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_CONFLICT_LAG_REFERENCE_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_CONFLICT_LAG_REFERENCE_KIND: u8 = 2;
@@ -1058,6 +1242,1117 @@ impl<'a> StaticContractVersionSet {
 
 }
 
+// struct ClearanceSpeedPoint, aligned to 4
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct ClearanceSpeedPoint(pub [u8; 8]);
+impl Default for ClearanceSpeedPoint { 
+  fn default() -> Self { 
+    Self([0; 8])
+  }
+}
+impl ::core::fmt::Debug for ClearanceSpeedPoint {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    f.debug_struct("ClearanceSpeedPoint")
+      .field("clearance_mm", &self.clearance_mm())
+      .field("speed_mm_s", &self.speed_mm_s())
+      .finish()
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for ClearanceSpeedPoint {}
+impl<'a> ::flatbuffers::Follow<'a> for ClearanceSpeedPoint {
+  type Inner = &'a ClearanceSpeedPoint;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a ClearanceSpeedPoint>::follow(buf, loc) }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for &'a ClearanceSpeedPoint {
+  type Inner = &'a ClearanceSpeedPoint;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { ::flatbuffers::follow_cast_ref::<ClearanceSpeedPoint>(buf, loc) }
+  }
+}
+impl<'b> ::flatbuffers::Push for ClearanceSpeedPoint {
+    type Output = ClearanceSpeedPoint;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const ClearanceSpeedPoint as *const u8, <Self as ::flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> ::flatbuffers::PushAlignment {
+        ::flatbuffers::PushAlignment::new(4)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for ClearanceSpeedPoint {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> ClearanceSpeedPoint {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    clearance_mm: u32,
+    speed_mm_s: u32,
+  ) -> Self {
+    let mut s = Self([0; 8]);
+    s.set_clearance_mm(clearance_mm);
+    s.set_speed_mm_s(speed_mm_s);
+    s
+  }
+
+  pub fn clearance_mm(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_clearance_mm(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn speed_mm_s(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[4..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_speed_mm_s(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[4..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
+// struct HandoffWindow, aligned to 8
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct HandoffWindow(pub [u8; 72]);
+impl Default for HandoffWindow { 
+  fn default() -> Self { 
+    Self([0; 72])
+  }
+}
+impl ::core::fmt::Debug for HandoffWindow {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    f.debug_struct("HandoffWindow")
+      .field("source_index", &self.source_index())
+      .field("owner_kind", &self.owner_kind())
+      .field("owner", &self.owner())
+      .field("left_member", &self.left_member())
+      .field("right_member", &self.right_member())
+      .field("low_mm", &self.low_mm())
+      .field("high_mm", &self.high_mm())
+      .finish()
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for HandoffWindow {}
+impl<'a> ::flatbuffers::Follow<'a> for HandoffWindow {
+  type Inner = &'a HandoffWindow;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a HandoffWindow>::follow(buf, loc) }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for &'a HandoffWindow {
+  type Inner = &'a HandoffWindow;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { ::flatbuffers::follow_cast_ref::<HandoffWindow>(buf, loc) }
+  }
+}
+impl<'b> ::flatbuffers::Push for HandoffWindow {
+    type Output = HandoffWindow;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const HandoffWindow as *const u8, <Self as ::flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> ::flatbuffers::PushAlignment {
+        ::flatbuffers::PushAlignment::new(8)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for HandoffWindow {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> HandoffWindow {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    source_index: u32,
+    owner_kind: u16,
+    owner: &StableId128,
+    left_member: &StableId128,
+    right_member: &StableId128,
+    low_mm: u64,
+    high_mm: u64,
+  ) -> Self {
+    let mut s = Self([0; 72]);
+    s.set_source_index(source_index);
+    s.set_owner_kind(owner_kind);
+    s.set_owner(owner);
+    s.set_left_member(left_member);
+    s.set_right_member(right_member);
+    s.set_low_mm(low_mm);
+    s.set_high_mm(high_mm);
+    s
+  }
+
+  pub fn source_index(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_source_index(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn owner_kind(&self) -> u16 {
+    let mut mem = ::core::mem::MaybeUninit::<<u16 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[4..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u16 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_owner_kind(&mut self, x: u16) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[4..].as_mut_ptr(),
+        ::core::mem::size_of::<<u16 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn owner(&self) -> &StableId128 {
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid struct in this slot
+    unsafe { &*(self.0[6..].as_ptr() as *const StableId128) }
+  }
+
+  #[allow(clippy::identity_op)]
+  pub fn set_owner(&mut self, x: &StableId128) {
+    self.0[6..6 + 16].copy_from_slice(&x.0)
+  }
+
+  pub fn left_member(&self) -> &StableId128 {
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid struct in this slot
+    unsafe { &*(self.0[22..].as_ptr() as *const StableId128) }
+  }
+
+  #[allow(clippy::identity_op)]
+  pub fn set_left_member(&mut self, x: &StableId128) {
+    self.0[22..22 + 16].copy_from_slice(&x.0)
+  }
+
+  pub fn right_member(&self) -> &StableId128 {
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid struct in this slot
+    unsafe { &*(self.0[38..].as_ptr() as *const StableId128) }
+  }
+
+  #[allow(clippy::identity_op)]
+  pub fn set_right_member(&mut self, x: &StableId128) {
+    self.0[38..38 + 16].copy_from_slice(&x.0)
+  }
+
+  pub fn low_mm(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[56..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_low_mm(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[56..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn high_mm(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[64..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_high_mm(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[64..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
+// struct ConflictDownstreamEnd, aligned to 4
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct ConflictDownstreamEnd(pub [u8; 8]);
+impl Default for ConflictDownstreamEnd { 
+  fn default() -> Self { 
+    Self([0; 8])
+  }
+}
+impl ::core::fmt::Debug for ConflictDownstreamEnd {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    f.debug_struct("ConflictDownstreamEnd")
+      .field("relative_hop_offset", &self.relative_hop_offset())
+      .field("progress_mm", &self.progress_mm())
+      .finish()
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for ConflictDownstreamEnd {}
+impl<'a> ::flatbuffers::Follow<'a> for ConflictDownstreamEnd {
+  type Inner = &'a ConflictDownstreamEnd;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a ConflictDownstreamEnd>::follow(buf, loc) }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for &'a ConflictDownstreamEnd {
+  type Inner = &'a ConflictDownstreamEnd;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { ::flatbuffers::follow_cast_ref::<ConflictDownstreamEnd>(buf, loc) }
+  }
+}
+impl<'b> ::flatbuffers::Push for ConflictDownstreamEnd {
+    type Output = ConflictDownstreamEnd;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const ConflictDownstreamEnd as *const u8, <Self as ::flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> ::flatbuffers::PushAlignment {
+        ::flatbuffers::PushAlignment::new(4)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for ConflictDownstreamEnd {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> ConflictDownstreamEnd {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    relative_hop_offset: u32,
+    progress_mm: u32,
+  ) -> Self {
+    let mut s = Self([0; 8]);
+    s.set_relative_hop_offset(relative_hop_offset);
+    s.set_progress_mm(progress_mm);
+    s
+  }
+
+  pub fn relative_hop_offset(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_relative_hop_offset(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn progress_mm(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[4..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_progress_mm(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[4..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
+// struct HandoffMotion, aligned to 8
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct HandoffMotion(pub [u8; 80]);
+impl Default for HandoffMotion { 
+  fn default() -> Self { 
+    Self([0; 80])
+  }
+}
+impl ::core::fmt::Debug for HandoffMotion {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    f.debug_struct("HandoffMotion")
+      .field("source_index", &self.source_index())
+      .field("trajectory_version", &self.trajectory_version())
+      .field("station_low_mm", &self.station_low_mm())
+      .field("station_high_mm", &self.station_high_mm())
+      .field("rear_start_mm", &self.rear_start_mm())
+      .field("rear_end_mm", &self.rear_end_mm())
+      .field("admitted_speed_bits", &self.admitted_speed_bits())
+      .field("tracks", &self.tracks())
+      .field("sweep", &self.sweep())
+      .field("rear_travel_um", &self.rear_travel_um())
+      .field("front_handed_off", &self.front_handed_off())
+      .field("acquired_tick", &self.acquired_tick())
+      .finish()
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for HandoffMotion {}
+impl<'a> ::flatbuffers::Follow<'a> for HandoffMotion {
+  type Inner = &'a HandoffMotion;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a HandoffMotion>::follow(buf, loc) }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for &'a HandoffMotion {
+  type Inner = &'a HandoffMotion;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { ::flatbuffers::follow_cast_ref::<HandoffMotion>(buf, loc) }
+  }
+}
+impl<'b> ::flatbuffers::Push for HandoffMotion {
+    type Output = HandoffMotion;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const HandoffMotion as *const u8, <Self as ::flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> ::flatbuffers::PushAlignment {
+        ::flatbuffers::PushAlignment::new(8)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for HandoffMotion {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> HandoffMotion {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    source_index: u32,
+    trajectory_version: u16,
+    station_low_mm: u64,
+    station_high_mm: u64,
+    rear_start_mm: u64,
+    rear_end_mm: u64,
+    admitted_speed_bits: u64,
+    tracks: u32,
+    sweep: u32,
+    rear_travel_um: u64,
+    front_handed_off: u8,
+    acquired_tick: u64,
+  ) -> Self {
+    let mut s = Self([0; 80]);
+    s.set_source_index(source_index);
+    s.set_trajectory_version(trajectory_version);
+    s.set_station_low_mm(station_low_mm);
+    s.set_station_high_mm(station_high_mm);
+    s.set_rear_start_mm(rear_start_mm);
+    s.set_rear_end_mm(rear_end_mm);
+    s.set_admitted_speed_bits(admitted_speed_bits);
+    s.set_tracks(tracks);
+    s.set_sweep(sweep);
+    s.set_rear_travel_um(rear_travel_um);
+    s.set_front_handed_off(front_handed_off);
+    s.set_acquired_tick(acquired_tick);
+    s
+  }
+
+  pub fn source_index(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_source_index(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn trajectory_version(&self) -> u16 {
+    let mut mem = ::core::mem::MaybeUninit::<<u16 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[4..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u16 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_trajectory_version(&mut self, x: u16) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[4..].as_mut_ptr(),
+        ::core::mem::size_of::<<u16 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn station_low_mm(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[8..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_station_low_mm(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[8..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn station_high_mm(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[16..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_station_high_mm(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[16..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn rear_start_mm(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[24..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_rear_start_mm(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[24..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn rear_end_mm(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[32..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_rear_end_mm(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[32..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn admitted_speed_bits(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[40..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_admitted_speed_bits(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[40..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn tracks(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[48..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_tracks(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[48..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn sweep(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[52..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_sweep(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[52..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn rear_travel_um(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[56..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_rear_travel_um(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[56..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn front_handed_off(&self) -> u8 {
+    let mut mem = ::core::mem::MaybeUninit::<<u8 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[64..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u8 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_front_handed_off(&mut self, x: u8) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[64..].as_mut_ptr(),
+        ::core::mem::size_of::<<u8 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn acquired_tick(&self) -> u64 {
+    let mut mem = ::core::mem::MaybeUninit::<<u64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[72..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_acquired_tick(&mut self, x: u64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[72..].as_mut_ptr(),
+        ::core::mem::size_of::<<u64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
+// struct HandoffProtection, aligned to 4
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct HandoffProtection(pub [u8; 28]);
+impl Default for HandoffProtection { 
+  fn default() -> Self { 
+    Self([0; 28])
+  }
+}
+impl ::core::fmt::Debug for HandoffProtection {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    f.debug_struct("HandoffProtection")
+      .field("role", &self.role())
+      .field("edge", &self.edge())
+      .field("start_mm", &self.start_mm())
+      .field("end_mm", &self.end_mm())
+      .finish()
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for HandoffProtection {}
+impl<'a> ::flatbuffers::Follow<'a> for HandoffProtection {
+  type Inner = &'a HandoffProtection;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a HandoffProtection>::follow(buf, loc) }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for &'a HandoffProtection {
+  type Inner = &'a HandoffProtection;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { ::flatbuffers::follow_cast_ref::<HandoffProtection>(buf, loc) }
+  }
+}
+impl<'b> ::flatbuffers::Push for HandoffProtection {
+    type Output = HandoffProtection;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const HandoffProtection as *const u8, <Self as ::flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> ::flatbuffers::PushAlignment {
+        ::flatbuffers::PushAlignment::new(4)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for HandoffProtection {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> HandoffProtection {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    role: HandoffProtectionRole,
+    edge: &StableId128,
+    start_mm: u32,
+    end_mm: u32,
+  ) -> Self {
+    let mut s = Self([0; 28]);
+    s.set_role(role);
+    s.set_edge(edge);
+    s.set_start_mm(start_mm);
+    s.set_end_mm(end_mm);
+    s
+  }
+
+  pub fn role(&self) -> HandoffProtectionRole {
+    let mut mem = ::core::mem::MaybeUninit::<<HandoffProtectionRole as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<HandoffProtectionRole as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_role(&mut self, x: HandoffProtectionRole) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        ::core::mem::size_of::<<HandoffProtectionRole as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn edge(&self) -> &StableId128 {
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid struct in this slot
+    unsafe { &*(self.0[1..].as_ptr() as *const StableId128) }
+  }
+
+  #[allow(clippy::identity_op)]
+  pub fn set_edge(&mut self, x: &StableId128) {
+    self.0[1..1 + 16].copy_from_slice(&x.0)
+  }
+
+  pub fn start_mm(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[20..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_start_mm(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[20..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn end_mm(&self) -> u32 {
+    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[24..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_end_mm(&mut self, x: u32) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[24..].as_mut_ptr(),
+        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
 pub enum WorldPolicyBindingOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1171,6 +2466,154 @@ impl ::core::fmt::Debug for WorldPolicyBinding<'_> {
       ds.finish()
   }
 }
+pub enum HandoffDrivingPolicyOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct HandoffDrivingPolicy<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for HandoffDrivingPolicy<'a> {
+  type Inner = HandoffDrivingPolicy<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> HandoffDrivingPolicy<'a> {
+  pub const VT_POLICY_VERSION: ::flatbuffers::VOffsetT = 4;
+  pub const VT_MAX_SPAN_MM: ::flatbuffers::VOffsetT = 6;
+  pub const VT_TRAVEL_TOLERANCE_MM: ::flatbuffers::VOffsetT = 8;
+  pub const VT_POINTS: ::flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    HandoffDrivingPolicy { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args HandoffDrivingPolicyArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<HandoffDrivingPolicy<'bldr>> {
+    let mut builder = HandoffDrivingPolicyBuilder::new(_fbb);
+    if let Some(x) = args.points { builder.add_points(x); }
+    builder.add_travel_tolerance_mm(args.travel_tolerance_mm);
+    builder.add_max_span_mm(args.max_span_mm);
+    builder.add_policy_version(args.policy_version);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn policy_version(&self) -> u16 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u16>(HandoffDrivingPolicy::VT_POLICY_VERSION, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn max_span_mm(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(HandoffDrivingPolicy::VT_MAX_SPAN_MM, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn travel_tolerance_mm(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(HandoffDrivingPolicy::VT_TRAVEL_TOLERANCE_MM, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn points(&self) -> ::flatbuffers::Vector<'a, ClearanceSpeedPoint> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ClearanceSpeedPoint>>>(HandoffDrivingPolicy::VT_POINTS, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for HandoffDrivingPolicy<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<u16>("policy_version", Self::VT_POLICY_VERSION, false)?
+     .visit_field::<u32>("max_span_mm", Self::VT_MAX_SPAN_MM, false)?
+     .visit_field::<u32>("travel_tolerance_mm", Self::VT_TRAVEL_TOLERANCE_MM, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ClearanceSpeedPoint>>>("points", Self::VT_POINTS, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct HandoffDrivingPolicyArgs<'a> {
+    pub policy_version: u16,
+    pub max_span_mm: u32,
+    pub travel_tolerance_mm: u32,
+    pub points: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ClearanceSpeedPoint>>>,
+}
+impl<'a> Default for HandoffDrivingPolicyArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    HandoffDrivingPolicyArgs {
+      policy_version: 0,
+      max_span_mm: 0,
+      travel_tolerance_mm: 0,
+      points: None, // required field
+    }
+  }
+}
+
+pub struct HandoffDrivingPolicyBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> HandoffDrivingPolicyBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_policy_version(&mut self, policy_version: u16) {
+    self.fbb_.push_slot::<u16>(HandoffDrivingPolicy::VT_POLICY_VERSION, policy_version, 0);
+  }
+  #[inline]
+  pub fn add_max_span_mm(&mut self, max_span_mm: u32) {
+    self.fbb_.push_slot::<u32>(HandoffDrivingPolicy::VT_MAX_SPAN_MM, max_span_mm, 0);
+  }
+  #[inline]
+  pub fn add_travel_tolerance_mm(&mut self, travel_tolerance_mm: u32) {
+    self.fbb_.push_slot::<u32>(HandoffDrivingPolicy::VT_TRAVEL_TOLERANCE_MM, travel_tolerance_mm, 0);
+  }
+  #[inline]
+  pub fn add_points(&mut self, points: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ClearanceSpeedPoint>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(HandoffDrivingPolicy::VT_POINTS, points);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> HandoffDrivingPolicyBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    HandoffDrivingPolicyBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<HandoffDrivingPolicy<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, HandoffDrivingPolicy::VT_POINTS,"points");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for HandoffDrivingPolicy<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("HandoffDrivingPolicy");
+      ds.field("policy_version", &self.policy_version());
+      ds.field("max_span_mm", &self.max_span_mm());
+      ds.field("travel_tolerance_mm", &self.travel_tolerance_mm());
+      ds.field("points", &self.points());
+      ds.finish()
+  }
+}
 pub enum WorldConfigBindingOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1192,6 +2635,8 @@ impl<'a> WorldConfigBinding<'a> {
   pub const VT_ROUTE_EDGE_OCCURRENCE_CAPACITY: ::flatbuffers::VOffsetT = 8;
   pub const VT_ROUTE_CONFLICT_OCCURRENCE_CAPACITY: ::flatbuffers::VOffsetT = 10;
   pub const VT_FIXED_DELTA_TIME_MS: ::flatbuffers::VOffsetT = 12;
+  pub const VT_HANDOFF_MODE: ::flatbuffers::VOffsetT = 14;
+  pub const VT_HANDOFF_POLICY: ::flatbuffers::VOffsetT = 16;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -1200,14 +2645,16 @@ impl<'a> WorldConfigBinding<'a> {
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args WorldConfigBindingArgs
+    args: &'args WorldConfigBindingArgs<'args>
   ) -> ::flatbuffers::WIPOffset<WorldConfigBinding<'bldr>> {
     let mut builder = WorldConfigBindingBuilder::new(_fbb);
     builder.add_fixed_delta_time_ms(args.fixed_delta_time_ms);
     builder.add_route_conflict_occurrence_capacity(args.route_conflict_occurrence_capacity);
     builder.add_route_edge_occurrence_capacity(args.route_edge_occurrence_capacity);
+    if let Some(x) = args.handoff_policy { builder.add_handoff_policy(x); }
     builder.add_route_capacity(args.route_capacity);
     builder.add_vehicle_capacity(args.vehicle_capacity);
+    builder.add_handoff_mode(args.handoff_mode);
     builder.finish()
   }
 
@@ -1247,6 +2694,20 @@ impl<'a> WorldConfigBinding<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(WorldConfigBinding::VT_FIXED_DELTA_TIME_MS, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn handoff_mode(&self) -> HandoffMode {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<HandoffMode>(WorldConfigBinding::VT_HANDOFF_MODE, Some(HandoffMode::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn handoff_policy(&self) -> Option<HandoffDrivingPolicy<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<HandoffDrivingPolicy>>(WorldConfigBinding::VT_HANDOFF_POLICY, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for WorldConfigBinding<'_> {
@@ -1260,18 +2721,22 @@ impl ::flatbuffers::Verifiable for WorldConfigBinding<'_> {
      .visit_field::<u64>("route_edge_occurrence_capacity", Self::VT_ROUTE_EDGE_OCCURRENCE_CAPACITY, false)?
      .visit_field::<u64>("route_conflict_occurrence_capacity", Self::VT_ROUTE_CONFLICT_OCCURRENCE_CAPACITY, false)?
      .visit_field::<u64>("fixed_delta_time_ms", Self::VT_FIXED_DELTA_TIME_MS, false)?
+     .visit_field::<HandoffMode>("handoff_mode", Self::VT_HANDOFF_MODE, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<HandoffDrivingPolicy>>("handoff_policy", Self::VT_HANDOFF_POLICY, false)?
      .finish();
     Ok(())
   }
 }
-pub struct WorldConfigBindingArgs {
+pub struct WorldConfigBindingArgs<'a> {
     pub vehicle_capacity: u32,
     pub route_capacity: u32,
     pub route_edge_occurrence_capacity: u64,
     pub route_conflict_occurrence_capacity: u64,
     pub fixed_delta_time_ms: u64,
+    pub handoff_mode: HandoffMode,
+    pub handoff_policy: Option<::flatbuffers::WIPOffset<HandoffDrivingPolicy<'a>>>,
 }
-impl<'a> Default for WorldConfigBindingArgs {
+impl<'a> Default for WorldConfigBindingArgs<'a> {
   #[inline]
   fn default() -> Self {
     WorldConfigBindingArgs {
@@ -1280,6 +2745,8 @@ impl<'a> Default for WorldConfigBindingArgs {
       route_edge_occurrence_capacity: 0,
       route_conflict_occurrence_capacity: 0,
       fixed_delta_time_ms: 0,
+      handoff_mode: HandoffMode::Unspecified,
+      handoff_policy: None,
     }
   }
 }
@@ -1310,6 +2777,14 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WorldConfigBindingBuilder<'a,
     self.fbb_.push_slot::<u64>(WorldConfigBinding::VT_FIXED_DELTA_TIME_MS, fixed_delta_time_ms, 0);
   }
   #[inline]
+  pub fn add_handoff_mode(&mut self, handoff_mode: HandoffMode) {
+    self.fbb_.push_slot::<HandoffMode>(WorldConfigBinding::VT_HANDOFF_MODE, handoff_mode, HandoffMode::Unspecified);
+  }
+  #[inline]
+  pub fn add_handoff_policy(&mut self, handoff_policy: ::flatbuffers::WIPOffset<HandoffDrivingPolicy<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<HandoffDrivingPolicy>>(WorldConfigBinding::VT_HANDOFF_POLICY, handoff_policy);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> WorldConfigBindingBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WorldConfigBindingBuilder {
@@ -1332,6 +2807,8 @@ impl ::core::fmt::Debug for WorldConfigBinding<'_> {
       ds.field("route_edge_occurrence_capacity", &self.route_edge_occurrence_capacity());
       ds.field("route_conflict_occurrence_capacity", &self.route_conflict_occurrence_capacity());
       ds.field("fixed_delta_time_ms", &self.fixed_delta_time_ms());
+      ds.field("handoff_mode", &self.handoff_mode());
+      ds.field("handoff_policy", &self.handoff_policy());
       ds.finish()
   }
 }
@@ -1631,6 +3108,7 @@ impl<'a> ::flatbuffers::Follow<'a> for SnapshotRoute<'a> {
 impl<'a> SnapshotRoute<'a> {
   pub const VT_SNAPSHOT_ROUTE_ID: ::flatbuffers::VOffsetT = 4;
   pub const VT_EDGES: ::flatbuffers::VOffsetT = 6;
+  pub const VT_HANDOFF_WINDOWS: ::flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -1643,6 +3121,7 @@ impl<'a> SnapshotRoute<'a> {
   ) -> ::flatbuffers::WIPOffset<SnapshotRoute<'bldr>> {
     let mut builder = SnapshotRouteBuilder::new(_fbb);
     builder.add_snapshot_route_id(args.snapshot_route_id);
+    if let Some(x) = args.handoff_windows { builder.add_handoff_windows(x); }
     if let Some(x) = args.edges { builder.add_edges(x); }
     builder.finish()
   }
@@ -1662,6 +3141,13 @@ impl<'a> SnapshotRoute<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, StableId128>>>(SnapshotRoute::VT_EDGES, None).unwrap()}
   }
+  #[inline]
+  pub fn handoff_windows(&self) -> ::flatbuffers::Vector<'a, HandoffWindow> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, HandoffWindow>>>(SnapshotRoute::VT_HANDOFF_WINDOWS, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for SnapshotRoute<'_> {
@@ -1672,6 +3158,7 @@ impl ::flatbuffers::Verifiable for SnapshotRoute<'_> {
     v.visit_table(pos)?
      .visit_field::<u64>("snapshot_route_id", Self::VT_SNAPSHOT_ROUTE_ID, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, StableId128>>>("edges", Self::VT_EDGES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, HandoffWindow>>>("handoff_windows", Self::VT_HANDOFF_WINDOWS, true)?
      .finish();
     Ok(())
   }
@@ -1679,6 +3166,7 @@ impl ::flatbuffers::Verifiable for SnapshotRoute<'_> {
 pub struct SnapshotRouteArgs<'a> {
     pub snapshot_route_id: u64,
     pub edges: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, StableId128>>>,
+    pub handoff_windows: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, HandoffWindow>>>,
 }
 impl<'a> Default for SnapshotRouteArgs<'a> {
   #[inline]
@@ -1686,6 +3174,7 @@ impl<'a> Default for SnapshotRouteArgs<'a> {
     SnapshotRouteArgs {
       snapshot_route_id: 0,
       edges: None, // required field
+      handoff_windows: None, // required field
     }
   }
 }
@@ -1704,6 +3193,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SnapshotRouteBuilder<'a, 'b, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(SnapshotRoute::VT_EDGES, edges);
   }
   #[inline]
+  pub fn add_handoff_windows(&mut self, handoff_windows: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , HandoffWindow>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(SnapshotRoute::VT_HANDOFF_WINDOWS, handoff_windows);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> SnapshotRouteBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     SnapshotRouteBuilder {
@@ -1715,6 +3208,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SnapshotRouteBuilder<'a, 'b, 
   pub fn finish(self) -> ::flatbuffers::WIPOffset<SnapshotRoute<'a>> {
     let o = self.fbb_.end_table(self.start_);
     self.fbb_.required(o, SnapshotRoute::VT_EDGES,"edges");
+    self.fbb_.required(o, SnapshotRoute::VT_HANDOFF_WINDOWS,"handoff_windows");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -1724,6 +3218,7 @@ impl ::core::fmt::Debug for SnapshotRoute<'_> {
     let mut ds = f.debug_struct("SnapshotRoute");
       ds.field("snapshot_route_id", &self.snapshot_route_id());
       ds.field("edges", &self.edges());
+      ds.field("handoff_windows", &self.handoff_windows());
       ds.finish()
   }
 }
@@ -2696,136 +4191,6 @@ impl ::core::fmt::Debug for ConflictPassageBinding<'_> {
       ds.finish()
   }
 }
-pub enum ConflictDownstreamIntervalBindingOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct ConflictDownstreamIntervalBinding<'a> {
-  pub _tab: ::flatbuffers::Table<'a>,
-}
-
-impl<'a> ::flatbuffers::Follow<'a> for ConflictDownstreamIntervalBinding<'a> {
-  type Inner = ConflictDownstreamIntervalBinding<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
-  }
-}
-
-impl<'a> ConflictDownstreamIntervalBinding<'a> {
-  pub const VT_LANE_EDGE: ::flatbuffers::VOffsetT = 4;
-  pub const VT_START_MM: ::flatbuffers::VOffsetT = 6;
-  pub const VT_END_MM: ::flatbuffers::VOffsetT = 8;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
-    ConflictDownstreamIntervalBinding { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args ConflictDownstreamIntervalBindingArgs<'args>
-  ) -> ::flatbuffers::WIPOffset<ConflictDownstreamIntervalBinding<'bldr>> {
-    let mut builder = ConflictDownstreamIntervalBindingBuilder::new(_fbb);
-    builder.add_end_mm(args.end_mm);
-    builder.add_start_mm(args.start_mm);
-    if let Some(x) = args.lane_edge { builder.add_lane_edge(x); }
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn lane_edge(&self) -> Option<&'a StableId128> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<StableId128>(ConflictDownstreamIntervalBinding::VT_LANE_EDGE, None)}
-  }
-  #[inline]
-  pub fn start_mm(&self) -> u32 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_START_MM, Some(0)).unwrap()}
-  }
-  #[inline]
-  pub fn end_mm(&self) -> u32 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_END_MM, Some(0)).unwrap()}
-  }
-}
-
-impl ::flatbuffers::Verifiable for ConflictDownstreamIntervalBinding<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut ::flatbuffers::Verifier, pos: usize
-  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
-    v.visit_table(pos)?
-     .visit_field::<StableId128>("lane_edge", Self::VT_LANE_EDGE, false)?
-     .visit_field::<u32>("start_mm", Self::VT_START_MM, false)?
-     .visit_field::<u32>("end_mm", Self::VT_END_MM, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct ConflictDownstreamIntervalBindingArgs<'a> {
-    pub lane_edge: Option<&'a StableId128>,
-    pub start_mm: u32,
-    pub end_mm: u32,
-}
-impl<'a> Default for ConflictDownstreamIntervalBindingArgs<'a> {
-  #[inline]
-  fn default() -> Self {
-    ConflictDownstreamIntervalBindingArgs {
-      lane_edge: None,
-      start_mm: 0,
-      end_mm: 0,
-    }
-  }
-}
-
-pub struct ConflictDownstreamIntervalBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictDownstreamIntervalBindingBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_lane_edge(&mut self, lane_edge: &StableId128) {
-    self.fbb_.push_slot_always::<&StableId128>(ConflictDownstreamIntervalBinding::VT_LANE_EDGE, lane_edge);
-  }
-  #[inline]
-  pub fn add_start_mm(&mut self, start_mm: u32) {
-    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_START_MM, start_mm, 0);
-  }
-  #[inline]
-  pub fn add_end_mm(&mut self, end_mm: u32) {
-    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_END_MM, end_mm, 0);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictDownstreamIntervalBindingBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    ConflictDownstreamIntervalBindingBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictDownstreamIntervalBinding<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    ::flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl ::core::fmt::Debug for ConflictDownstreamIntervalBinding<'_> {
-  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-    let mut ds = f.debug_struct("ConflictDownstreamIntervalBinding");
-      ds.field("lane_edge", &self.lane_edge());
-      ds.field("start_mm", &self.start_mm());
-      ds.field("end_mm", &self.end_mm());
-      ds.finish()
-  }
-}
 pub enum ConflictReservationBindingOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -2847,7 +4212,7 @@ impl<'a> ConflictReservationBinding<'a> {
   pub const VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX: ::flatbuffers::VOffsetT = 8;
   pub const VT_ADMISSION_GATE: ::flatbuffers::VOffsetT = 10;
   pub const VT_PASSAGES: ::flatbuffers::VOffsetT = 12;
-  pub const VT_DOWNSTREAM_INTERVALS: ::flatbuffers::VOffsetT = 14;
+  pub const VT_DOWNSTREAM_END: ::flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -2860,7 +4225,7 @@ impl<'a> ConflictReservationBinding<'a> {
   ) -> ::flatbuffers::WIPOffset<ConflictReservationBinding<'bldr>> {
     let mut builder = ConflictReservationBindingBuilder::new(_fbb);
     builder.add_acquired_tick(args.acquired_tick);
-    if let Some(x) = args.downstream_intervals { builder.add_downstream_intervals(x); }
+    if let Some(x) = args.downstream_end { builder.add_downstream_end(x); }
     if let Some(x) = args.passages { builder.add_passages(x); }
     if let Some(x) = args.admission_gate { builder.add_admission_gate(x); }
     builder.add_maneuver_entry_route_edge_index(args.maneuver_entry_route_edge_index);
@@ -2905,11 +4270,11 @@ impl<'a> ConflictReservationBinding<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictPassageBinding>>>>(ConflictReservationBinding::VT_PASSAGES, None).unwrap()}
   }
   #[inline]
-  pub fn downstream_intervals(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding<'a>>> {
+  pub fn downstream_end(&self) -> &'a ConflictDownstreamEnd {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding>>>>(ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS, None).unwrap()}
+    unsafe { self._tab.get::<ConflictDownstreamEnd>(ConflictReservationBinding::VT_DOWNSTREAM_END, None).unwrap()}
   }
 }
 
@@ -2924,7 +4289,7 @@ impl ::flatbuffers::Verifiable for ConflictReservationBinding<'_> {
      .visit_field::<u32>("maneuver_entry_route_edge_index", Self::VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX, false)?
      .visit_field::<StableId128>("admission_gate", Self::VT_ADMISSION_GATE, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictPassageBinding>>>>("passages", Self::VT_PASSAGES, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding>>>>("downstream_intervals", Self::VT_DOWNSTREAM_INTERVALS, true)?
+     .visit_field::<ConflictDownstreamEnd>("downstream_end", Self::VT_DOWNSTREAM_END, true)?
      .finish();
     Ok(())
   }
@@ -2935,7 +4300,7 @@ pub struct ConflictReservationBindingArgs<'a> {
     pub maneuver_entry_route_edge_index: u32,
     pub admission_gate: Option<&'a StableId128>,
     pub passages: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictPassageBinding<'a>>>>>,
-    pub downstream_intervals: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding<'a>>>>>,
+    pub downstream_end: Option<&'a ConflictDownstreamEnd>,
 }
 impl<'a> Default for ConflictReservationBindingArgs<'a> {
   #[inline]
@@ -2946,7 +4311,7 @@ impl<'a> Default for ConflictReservationBindingArgs<'a> {
       maneuver_entry_route_edge_index: 0,
       admission_gate: None,
       passages: None, // required field
-      downstream_intervals: None, // required field
+      downstream_end: None, // required field
     }
   }
 }
@@ -2977,8 +4342,8 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictReservationBindingBui
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictReservationBinding::VT_PASSAGES, passages);
   }
   #[inline]
-  pub fn add_downstream_intervals(&mut self, downstream_intervals: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding<'b >>>>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS, downstream_intervals);
+  pub fn add_downstream_end(&mut self, downstream_end: &ConflictDownstreamEnd) {
+    self.fbb_.push_slot_always::<&ConflictDownstreamEnd>(ConflictReservationBinding::VT_DOWNSTREAM_END, downstream_end);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictReservationBindingBuilder<'a, 'b, A> {
@@ -2992,7 +4357,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictReservationBindingBui
   pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictReservationBinding<'a>> {
     let o = self.fbb_.end_table(self.start_);
     self.fbb_.required(o, ConflictReservationBinding::VT_PASSAGES,"passages");
-    self.fbb_.required(o, ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS,"downstream_intervals");
+    self.fbb_.required(o, ConflictReservationBinding::VT_DOWNSTREAM_END,"downstream_end");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -3005,7 +4370,122 @@ impl ::core::fmt::Debug for ConflictReservationBinding<'_> {
       ds.field("maneuver_entry_route_edge_index", &self.maneuver_entry_route_edge_index());
       ds.field("admission_gate", &self.admission_gate());
       ds.field("passages", &self.passages());
-      ds.field("downstream_intervals", &self.downstream_intervals());
+      ds.field("downstream_end", &self.downstream_end());
+      ds.finish()
+  }
+}
+pub enum CommittedHandoffOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct CommittedHandoff<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for CommittedHandoff<'a> {
+  type Inner = CommittedHandoff<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> CommittedHandoff<'a> {
+  pub const VT_MOTION: ::flatbuffers::VOffsetT = 4;
+  pub const VT_PROTECTIONS: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    CommittedHandoff { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args CommittedHandoffArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<CommittedHandoff<'bldr>> {
+    let mut builder = CommittedHandoffBuilder::new(_fbb);
+    if let Some(x) = args.protections { builder.add_protections(x); }
+    if let Some(x) = args.motion { builder.add_motion(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn motion(&self) -> &'a HandoffMotion {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<HandoffMotion>(CommittedHandoff::VT_MOTION, None).unwrap()}
+  }
+  #[inline]
+  pub fn protections(&self) -> ::flatbuffers::Vector<'a, HandoffProtection> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, HandoffProtection>>>(CommittedHandoff::VT_PROTECTIONS, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for CommittedHandoff<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<HandoffMotion>("motion", Self::VT_MOTION, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, HandoffProtection>>>("protections", Self::VT_PROTECTIONS, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct CommittedHandoffArgs<'a> {
+    pub motion: Option<&'a HandoffMotion>,
+    pub protections: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, HandoffProtection>>>,
+}
+impl<'a> Default for CommittedHandoffArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    CommittedHandoffArgs {
+      motion: None, // required field
+      protections: None, // required field
+    }
+  }
+}
+
+pub struct CommittedHandoffBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CommittedHandoffBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_motion(&mut self, motion: &HandoffMotion) {
+    self.fbb_.push_slot_always::<&HandoffMotion>(CommittedHandoff::VT_MOTION, motion);
+  }
+  #[inline]
+  pub fn add_protections(&mut self, protections: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , HandoffProtection>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(CommittedHandoff::VT_PROTECTIONS, protections);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> CommittedHandoffBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    CommittedHandoffBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<CommittedHandoff<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, CommittedHandoff::VT_MOTION,"motion");
+    self.fbb_.required(o, CommittedHandoff::VT_PROTECTIONS,"protections");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for CommittedHandoff<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("CommittedHandoff");
+      ds.field("motion", &self.motion());
+      ds.field("protections", &self.protections());
       ds.finish()
   }
 }
@@ -3170,6 +4650,7 @@ impl<'a> SnapshotVehicle<'a> {
   pub const VT_WAITING_MEMBERSHIP: ::flatbuffers::VOffsetT = 26;
   pub const VT_CONFLICT_ELIGIBILITY: ::flatbuffers::VOffsetT = 28;
   pub const VT_CONFLICT_RESERVATION: ::flatbuffers::VOffsetT = 30;
+  pub const VT_HANDOFFS: ::flatbuffers::VOffsetT = 32;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -3183,6 +4664,7 @@ impl<'a> SnapshotVehicle<'a> {
     let mut builder = SnapshotVehicleBuilder::new(_fbb);
     builder.add_snapshot_route_id(args.snapshot_route_id);
     builder.add_snapshot_vehicle_id(args.snapshot_vehicle_id);
+    if let Some(x) = args.handoffs { builder.add_handoffs(x); }
     if let Some(x) = args.conflict_reservation { builder.add_conflict_reservation(x); }
     if let Some(x) = args.conflict_eligibility { builder.add_conflict_eligibility(x); }
     if let Some(x) = args.waiting_membership { builder.add_waiting_membership(x); }
@@ -3297,6 +4779,13 @@ impl<'a> SnapshotVehicle<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ConflictReservationBinding>>(SnapshotVehicle::VT_CONFLICT_RESERVATION, None)}
   }
+  #[inline]
+  pub fn handoffs(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CommittedHandoff<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CommittedHandoff>>>>(SnapshotVehicle::VT_HANDOFFS, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for SnapshotVehicle<'_> {
@@ -3319,6 +4808,7 @@ impl ::flatbuffers::Verifiable for SnapshotVehicle<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<WaitingMembershipBinding>>("waiting_membership", Self::VT_WAITING_MEMBERSHIP, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<ConflictEligibilityBinding>>("conflict_eligibility", Self::VT_CONFLICT_ELIGIBILITY, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<ConflictReservationBinding>>("conflict_reservation", Self::VT_CONFLICT_RESERVATION, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<CommittedHandoff>>>>("handoffs", Self::VT_HANDOFFS, true)?
      .finish();
     Ok(())
   }
@@ -3338,6 +4828,7 @@ pub struct SnapshotVehicleArgs<'a> {
     pub waiting_membership: Option<::flatbuffers::WIPOffset<WaitingMembershipBinding<'a>>>,
     pub conflict_eligibility: Option<::flatbuffers::WIPOffset<ConflictEligibilityBinding<'a>>>,
     pub conflict_reservation: Option<::flatbuffers::WIPOffset<ConflictReservationBinding<'a>>>,
+    pub handoffs: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CommittedHandoff<'a>>>>>,
 }
 impl<'a> Default for SnapshotVehicleArgs<'a> {
   #[inline]
@@ -3357,6 +4848,7 @@ impl<'a> Default for SnapshotVehicleArgs<'a> {
       waiting_membership: None,
       conflict_eligibility: None,
       conflict_reservation: None,
+      handoffs: None, // required field
     }
   }
 }
@@ -3423,6 +4915,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SnapshotVehicleBuilder<'a, 'b
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ConflictReservationBinding>>(SnapshotVehicle::VT_CONFLICT_RESERVATION, conflict_reservation);
   }
   #[inline]
+  pub fn add_handoffs(&mut self, handoffs: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<CommittedHandoff<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(SnapshotVehicle::VT_HANDOFFS, handoffs);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> SnapshotVehicleBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     SnapshotVehicleBuilder {
@@ -3433,6 +4929,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SnapshotVehicleBuilder<'a, 'b
   #[inline]
   pub fn finish(self) -> ::flatbuffers::WIPOffset<SnapshotVehicle<'a>> {
     let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, SnapshotVehicle::VT_HANDOFFS,"handoffs");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -3454,6 +4951,7 @@ impl ::core::fmt::Debug for SnapshotVehicle<'_> {
       ds.field("waiting_membership", &self.waiting_membership());
       ds.field("conflict_eligibility", &self.conflict_eligibility());
       ds.field("conflict_reservation", &self.conflict_reservation());
+      ds.field("handoffs", &self.handoffs());
       ds.finish()
   }
 }
@@ -4115,7 +5613,7 @@ pub fn finish_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(
 pub fn finish_size_prefixed_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>, root: ::flatbuffers::WIPOffset<RuntimeSnapshot<'a>>) {
   fbb.finish_size_prefixed(root, Some(RUNTIME_SNAPSHOT_IDENTIFIER));
 }
-}  // pub mod V7
+}  // pub mod V8
 }  // pub mod RuntimeSnapshot
 }  // pub mod LaneFlow
 

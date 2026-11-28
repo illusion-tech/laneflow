@@ -1,9 +1,9 @@
-// LaneFlow 运行时快照容器 v7。
+// LaneFlow 运行时快照容器 v8。联合保存动态路线窗口、横移、组合预约及路口下游授权终点。
 // 保存策略选择、Conflict 资格/reservation/lag history 与 Clearing；派生
 // queue link、occupancy index、frontier、latest decision/event batch 和 tick-local claim 不持久化。
 // 编辑来源只绑定道路编辑状态摘要、精确总长度与模块数，不内嵌 LFRE 字节。
 
-namespace LaneFlow.RuntimeSnapshot.V7;
+namespace LaneFlow.RuntimeSnapshot.V8;
 
 struct Digest256 { bytes:[ubyte:32]; }
 struct StableId128 { bytes:[ubyte:16]; }
@@ -30,6 +30,8 @@ enum ManeuverTraversalPhaseKind:ubyte {
 }
 
 enum WorldPolicySelectionKind:ubyte { Unspecified = 0, NotRequired = 1, Pinned = 2 }
+enum HandoffMode:ubyte { Unspecified = 0, Disabled = 1, Enabled = 2 }
+enum HandoffProtectionRole:ubyte { Unspecified = 0, Source = 1, Target = 2, Sweep = 3, Downstream = 4 }
 enum ConflictLagReferenceKind:ubyte {
   Unspecified = 0,
   ActualClear = 1,
@@ -41,12 +43,26 @@ table WorldPolicyBinding {
   policy:StableId128;
 }
 
+struct ClearanceSpeedPoint {
+  clearance_mm:uint;
+  speed_mm_s:uint;
+}
+
+table HandoffDrivingPolicy {
+  policy_version:ushort;
+  max_span_mm:uint;
+  travel_tolerance_mm:uint;
+  points:[ClearanceSpeedPoint] (required);
+}
+
 table WorldConfigBinding {
   vehicle_capacity:uint;
   route_capacity:uint;
   route_edge_occurrence_capacity:ulong;
   route_conflict_occurrence_capacity:ulong;
   fixed_delta_time_ms:ulong;
+  handoff_mode:HandoffMode;
+  handoff_policy:HandoffDrivingPolicy;
 }
 
 table PublishedSourceBinding {
@@ -62,9 +78,21 @@ table EditableSourceBinding {
   module_count:uint;
 }
 
+// 稳定身份依次指认结构边界所有者和左右成员，其类型由 owner_kind 决定。
+struct HandoffWindow {
+  source_index:uint;
+  owner_kind:ushort;
+  owner:StableId128;
+  left_member:StableId128;
+  right_member:StableId128;
+  low_mm:ulong;
+  high_mm:ulong;
+}
+
 table SnapshotRoute {
   snapshot_route_id:ulong;
   edges:[StableId128] (required);
+  handoff_windows:[HandoffWindow] (required);
 }
 
 // target is ParkingSpace StableId for ExplicitSpace and ParkingFacility StableId for
@@ -120,12 +148,10 @@ table ConflictPassageBinding {
   clearance_progress_mm:uint;
 }
 
-// 保留实际已提交的物理 claim 并集。route occurrence、owner 顺序与车型间距均由
-// reservation exact route/Gate/passages 和被绑定 LFCA 重新推导，不在每个区间重复保存。
-table ConflictDownstreamIntervalBinding {
-  lane_edge:StableId128;
-  start_mm:uint;
-  end_mm:uint;
+// 普通冲突预约的终点相对于该机动的入口出现。物理保护区间在恢复时正向重建。
+struct ConflictDownstreamEnd {
+  relative_hop_offset:uint;
+  progress_mm:uint;
 }
 
 table ConflictReservationBinding {
@@ -134,7 +160,35 @@ table ConflictReservationBinding {
   maneuver_entry_route_edge_index:uint;
   admission_gate:StableId128;
   passages:[ConflictPassageBinding] (required);
-  downstream_intervals:[ConflictDownstreamIntervalBinding] (required);
+  downstream_end:ConflictDownstreamEnd (required);
+}
+
+// 后轴起止站位按行驶方向保存。浮点速度存为已规范化的 binary64 位型。
+struct HandoffMotion {
+  source_index:uint;
+  trajectory_version:ushort;
+  station_low_mm:ulong;
+  station_high_mm:ulong;
+  rear_start_mm:ulong;
+  rear_end_mm:ulong;
+  admitted_speed_bits:ulong;
+  tracks:uint;
+  sweep:uint;
+  rear_travel_um:ulong;
+  front_handed_off:ubyte;
+  acquired_tick:ulong;
+}
+
+struct HandoffProtection {
+  role:HandoffProtectionRole;
+  edge:StableId128;
+  start_mm:uint;
+  end_mm:uint;
+}
+
+table CommittedHandoff {
+  motion:HandoffMotion (required);
+  protections:[HandoffProtection] (required);
 }
 
 // 只允许 ActualClear/CutoverFloor；NoHistory 不写行。
@@ -159,6 +213,7 @@ table SnapshotVehicle {
   waiting_membership:WaitingMembershipBinding;
   conflict_eligibility:ConflictEligibilityBinding;
   conflict_reservation:ConflictReservationBinding;
+  handoffs:[CommittedHandoff] (required);
 }
 
 // occupancy is serialized defensively and must equal the reconstructed member count.

@@ -1,8 +1,8 @@
 use super::*;
 use crate::station::vehicle::surface::{Patch, dot, shifted};
 
-fn microns(value: f64, error_nm: u32) -> I {
-    (I::point(value) / I::point(1e6)).with_error(I::meters(u64::from(error_nm)).hi)
+fn millimetres(value: f64, error_mm: u32) -> I {
+    (I::point(value) / I::point(1_000.)).with_error(I::from_millimetres(error_mm).hi)
 }
 
 // 从后轴投影起算，分别加入三个车体轴在待测水平轴上的投影。
@@ -153,17 +153,17 @@ pub(super) fn frame(
     let rows = c.all_surface;
     let lo = nm.saturating_sub(err);
     let hi = nm.saturating_add(err);
-    let first = partition(rows, |r| r.stations[1].0 < lo, work)?;
+    let first = partition(rows, |r| r.stations_nm()[1].0 < lo, work)?;
     let mut frame: Option<(Vector, Horizontal)> = None;
     for r in &rows[first..] {
         work.charge()?;
-        if r.stations[0].0 > hi {
+        if r.stations_nm()[0].0 > hi {
             break;
         }
         let patch = Patch::new(r);
         let t = patch
-            .parameter(lo.max(r.stations[0].0))
-            .hull(patch.parameter(hi.min(r.stations[1].0)));
+            .parameter(lo.max(r.stations_nm()[0].0))
+            .hull(patch.parameter(hi.min(r.stations_nm()[1].0)));
         let p = patch.derivative(t, 0);
         let v = horizontal(patch.derivative(t, 1));
         let norm = (v[0].square() + v[1].square()).sqrt();
@@ -191,9 +191,9 @@ impl Curb {
     fn profile(&self, s: I) -> Option<[I; 4]> {
         let t = ((s - self.anchors[0]) / (self.anchors[1] - self.anchors[0])).intersect(I::UNIT)?;
         Some(std::array::from_fn(|i| {
-            let a = microns(f64::from(self.ends[0][i]), 0);
-            let b = microns(f64::from(self.ends[1][i]), 0);
-            (a + (b - a) * t).with_error(I::meters(u64::from(self.error)).hi)
+            let a = millimetres(f64::from(self.ends[0][i]), 0);
+            let b = millimetres(f64::from(self.ends[1][i]), 0);
+            (a + (b - a) * t).with_error(I::from_millimetres(self.error).hi)
         }))
     }
     fn check<'a>(
@@ -210,18 +210,18 @@ impl Curb {
         let world = c.surface.project(horizontal(p), work)?;
         // 车身和路缘都在世界坐标中求距离下界。路面投影用于后续接触见证。
         let [low, high] = self.station_bounds_nm;
-        let first = partition(c.all_surface, |r| r.stations[1].0 < low, work)?;
+        let first = partition(c.all_surface, |r| r.stations_nm()[1].0 < low, work)?;
         let mut lower = f64::INFINITY;
         let mut inspected = false;
         let mut relevant = false;
         for r in &c.all_surface[first..] {
             work.charge()?;
-            if r.stations[0].0 > high {
+            if r.stations_nm()[0].0 > high {
                 break;
             }
             let patch = Patch::new(r);
-            let a = low.max(r.stations[0].0);
-            let b = high.min(r.stations[1].0);
+            let a = low.max(r.stations_nm()[0].0);
+            let b = high.min(r.stations_nm()[1].0);
             let station = I::meters(a).hull(I::meters(b));
             let Some([l, rr, bottom, top]) = self.profile(station) else {
                 continue;
@@ -366,26 +366,26 @@ pub(super) fn check<'a>(
         ..s.id
     };
     let anchors = std::array::from_fn(|i| {
-        I::meters(e.stations_nm[i]).with_error(I::meters(u64::from(e.errors_nm[i])).hi)
+        I::meters(e.stations_nm()[i]).with_error(I::meters(e.errors_nm()[i]).hi)
     });
     match e.payload.ok_or(Failure::Unavailable)? {
         BoundaryPayload::Guardrail {
             anchor_role,
-            lateral_um,
-            length_um,
-            radius_um,
-            heights_um,
-            error_nm,
+            lateral_mm,
+            length_mm,
+            radius_mm,
+            heights_mm,
+            error_mm,
         } => {
             let side = usize::from(anchor_role == 2);
-            let (center, h) = frame(c, e.stations_nm[side], u64::from(e.errors_nm[side]), work)?;
-            let d = s.line.lateral(c, anchors[side]) + microns(f64::from(lateral_um), error_nm);
+            let (center, h) = frame(c, e.stations_nm()[side], e.errors_nm()[side], work)?;
+            let d = s.line.lateral(c, anchors[side]) + millimetres(f64::from(lateral_mm), error_mm);
             let rail = Rail {
                 origin: shifted(horizontal(center), [h[1], -h[0]], d),
                 heading: if side == 1 { h.map(|v| -v) } else { h },
-                length: microns(f64::from(length_um), error_nm),
-                radius: microns(f64::from(radius_um), error_nm),
-                heights: heights_um.map(|v| center[1] + microns(f64::from(v), error_nm)),
+                length: millimetres(f64::from(length_mm), error_mm),
+                radius: millimetres(f64::from(radius_mm), error_mm),
+                heights: heights_mm.map(|v| center[1] + millimetres(f64::from(v), error_mm)),
             };
             let Some(lower) = rail.clearance(body, metric) else {
                 return Ok(Verdict::Clear(None));
@@ -410,13 +410,13 @@ pub(super) fn check<'a>(
                 })
             }
         }
-        BoundaryPayload::Curb { ends_um, error_nm } => Curb {
-            ends: ends_um,
-            error: error_nm,
+        BoundaryPayload::Curb { ends_mm, error_mm } => Curb {
+            ends: ends_mm,
+            error: error_mm,
             anchors,
             station_bounds_nm: [
-                e.stations_nm[0].saturating_sub(u64::from(e.errors_nm[0])),
-                e.stations_nm[1].saturating_add(u64::from(e.errors_nm[1])),
+                e.stations_nm()[0].saturating_sub(e.errors_nm()[0]),
+                e.stations_nm()[1].saturating_add(e.errors_nm()[1]),
             ],
         }
         .check(c, body, Seam { id, ..s }, range, metric, work),

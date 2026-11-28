@@ -29,7 +29,7 @@ registry 安装，也不把仓库相对路径写成安装后仍然有效。外�
 [当前能力与限制][capabilities]。首次 Alpha 的范围、稳定性、平台和
 公开支持矩阵不在这里写。
 
-可移植对象的现行版本是 LFCA 6 / LFSM 7 / LFSD 5 / LFCP 2。下面用到的文件名
+可移植对象的现行版本是 LFCA 8 / LFSM 9 / LFSD 7 / LFCP 2。下面用到的文件名
 `v0.2-signalized-corridor` 是检入场景制品名，不是格式版本。
 
 ## 先运行
@@ -60,7 +60,7 @@ asset=checked-in:v0.2-signalized-corridor
 catalog_version=0.4
 spatial=omitted
 policy=pinned
-network_revision=1c225cd04a4576f11c500af074482291429d766d938e973cf61bb843bffef4d4
+network_revision=afad6f95054b94f41d7d9e78b856a35d139602923b2b91ba76750de236b6e3c0
 attestation=pass
 source_revision_matches=true
 portal=portal-main-west
@@ -88,7 +88,7 @@ rejected_observation=FirstExportMustBeFull
 session_after_rejected_delta=empty
 observation=full
 observation_base=none
-observation_revision=1c225cd04a4576f11c500af074482291429d766d938e973cf61bb843bffef4d4
+observation_revision=afad6f95054b94f41d7d9e78b856a35d139602923b2b91ba76750de236b6e3c0
 observation_tick=64
 observation_world_matches=true
 observation_entries=66
@@ -304,8 +304,7 @@ Pinned，会直接返回错误，而不是装一个不需要策略的世界。
 ## 当前限制
 
 - 交通运行时不生成出行需求，也不替宿主选择路线。本示例只注册 catalog 里已经写明的一条边序列。
-- 固定预构造换道只执行已经编制好的过渡。它不是任意位置变道。见
-  [能力页 · 固定预构造换道][capabilities-lane-change]。
+- 要执行道路换道，路线须登记同向相邻车道上的交接窗口。见[能力页 · 登记窗口内的任意位置换道][capabilities-lane-change]。
 - 上面的 64 步只确认时间和位移。它不是性能认证，也不能外推到其他路网或车辆数。
 
 ## 延伸阅读
@@ -331,7 +330,7 @@ Pinned，会直接返回错误，而不是装一个不需要策略的世界。
 [capabilities-parallel]: ../reference/capabilities.md#单世界并行
 [execution-config]: ../design/traffic-runtime-execution-config.md
 [parallel-execution-join]: ../design/traffic-runtime-parallel-execution.md#43-join取消与失败清理
-[capabilities-lane-change]: ../reference/capabilities.md#固定预构造换道
+[capabilities-lane-change]: ../reference/capabilities.md#登记窗口内的任意位置换道
 [runtime-snapshot]: ../design/traffic-runtime-snapshot.md
 [revision-cutover]: ../design/traffic-runtime-revision-cutover.md
 [spatial-geometry]: ../design/spatial-geometry.md

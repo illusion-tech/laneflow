@@ -1,7 +1,7 @@
 //! 从同一车体姿态定位前杠和车身在两侧物理边上的范围。
 use super::*;
-use crate::StationCandidates;
 use crate::station::vehicle::pose::Vector;
+use crate::{StationAddress, StationCandidates};
 
 /// 相对于有向交接的车道。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,15 +31,39 @@ pub struct HandoffSideFootprint {
     pub enclosure: StationCandidates,
     /// 至少一个严格位于此侧的实体点所在的可能位置。跨切点时各候选边是备选。
     pub witness: StationCandidates,
+    passed: PassedStations,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PassedStations {
+    Below(u64),
+    Above(u64),
+}
+
+impl HandoffSideFootprint {
+    /// 至少一个已严格归到本侧的车身采样点或前杠中点，沿行驶方向严格越过此截面。
+    /// 未证越线时，外包与截面相交也不授予通行权。
+    #[must_use]
+    pub fn has_passed_station(&self, station_mm: u64) -> bool {
+        match self.passed {
+            PassedStations::Below(limit) => station_mm < limit,
+            PassedStations::Above(limit) => station_mm > limit,
+        }
+    }
 }
 
 /// 给定后轴位置域内的前杠中点与两侧车身。此结果不发放或释放交通预约。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HandoffFootprint {
-    /// 在整个查询域内前保险杠中点所在的一侧。
+    /// 前杠的已证侧别。已预约查询若保留源侧游标，同时返回目标侧可能位置。
     pub front_side: HandoffLaneSide,
     /// 前保险杠中点在该侧独立边链上的可能位置。
     pub front: StationCandidates,
+    /// 同一前杠中点垂直投影到候选所在路面的规范框架 X、Y、Z 坐标，单位毫米，逐分量向外取整。
+    /// 世界坐标超出有符号毫米的表达范围时为空，车道侧别及交通占用仍有效。
+    pub front_ground_mm: Option<[[i64; 2]; 3]>,
+    /// 已预约且尚未证实前杠离开源侧时，目标侧同一前杠的可能位置。
+    pub possible_target_front: Option<StationAddress>,
     /// 顺序为源、目标。`None` 表示已证明该侧没有车身。
     pub sides: [Option<HandoffSideFootprint>; 2],
 }
@@ -57,11 +81,14 @@ pub struct HandoffFootprintReport {
 struct Side {
     enclosure: I,
     witness: I,
+    leading: I,
 }
 
 struct Stations {
-    front_side: HandoffLaneSide,
+    pose: PoseBounds,
+    front_side: Option<HandoffLaneSide>,
     front: I,
+    front_ground: Vector,
     sides: [Option<Side>; 2],
 }
 
@@ -96,6 +123,24 @@ fn side_coordinates(
 
 fn horizontal(p: Vector) -> [I; 2] {
     [p[0], p[2]]
+}
+
+fn ground_millimetres(ground: Vector) -> Option<[[i64; 2]; 3]> {
+    let mut result = [[0; 2]; 3];
+    for (coordinate, metres) in result.iter_mut().zip(ground) {
+        if !metres.finite() {
+            return None;
+        }
+        let mm = metres * I::point(1_000.);
+        let lo = mm.lo.floor();
+        let hi = mm.hi.ceil();
+        // i64::MAX 转成 f64 会向上舍入到 2^63；这个上界必须排除。
+        if !mm.finite() || lo < i64::MIN as f64 || hi >= -(i64::MIN as f64) {
+            return None;
+        }
+        *coordinate = [lo as i64, hi as i64];
+    }
+    Some(result)
 }
 
 // 站位梯度沿后轴到实体点的整条线段求界，使车体长度与宽度在旋转后仍各沿自身的轴。
@@ -191,7 +236,7 @@ pub(super) fn map_side(
     work: &mut Work,
 ) -> Result<StationCandidates, Failure> {
     work.charge()?;
-    match revision.station_mapping().in_station_range(
+    match revision.station_mapping().in_station_range_nm(
         q.corridor,
         nanometres(s)?,
         bound.source_target[i],
@@ -206,6 +251,7 @@ fn stations(
     bound: &Bound,
     shape: BodyEnvelope,
     range: [u64; 2],
+    reserved: bool,
     work: &mut Work,
 ) -> Result<Stations, Failure> {
     work.charge()?;
@@ -213,17 +259,23 @@ fn stations(
         Piece::Join {
             at, smooth: true, ..
         } => {
-            let mut a = stations(c, bound, shape, [range[0], at], work)?;
-            let b = stations(c, bound, shape, [at, range[1]], work)?;
+            let mut a = stations(c, bound, shape, [range[0], at], reserved, work)?;
+            let b = stations(c, bound, shape, [at, range[1]], reserved, work)?;
             if a.front_side != b.front_side {
-                return Err(Failure::Boundary);
+                if !reserved {
+                    return Err(Failure::Boundary);
+                }
+                a.front_side = None;
             }
             a.front = a.front.hull(b.front);
+            a.front_ground = std::array::from_fn(|i| a.front_ground[i].hull(b.front_ground[i]));
+            a.pose = a.pose.hull(b.pose);
             for (first, second) in a.sides.iter_mut().zip(b.sides) {
                 match (first, second) {
                     (Some(x), Some(y)) => {
                         x.enclosure = x.enclosure.hull(y.enclosure);
                         x.witness = x.witness.hull(y.witness);
+                        x.leading = x.leading.hull(y.leading);
                     }
                     (None, None) => {}
                     _ => return Err(Failure::Boundary),
@@ -236,15 +288,22 @@ fn stations(
     };
     let pose = c.pose(&motion, work)?;
     let coords = shape.ranges();
-    let front = c
-        .surface
-        .project(pose.wheel(shape.front_from_rear_m, 0.), work)?;
+    let [x, z] = pose.wheel(shape.front_from_rear_m, 0.);
+    let front = c.surface.project([x, z], work)?;
     within_outer(c, bound, &pose, coords, Some(front), work)?;
     let seam = &bound.crossing;
     let signed = |p: Projection| seam.sign * (p.lateral - seam.line.lateral(c, p.station));
-    let front_side = HandoffLaneSide::of(signed(front)).ok_or(Failure::Boundary)?;
+    let front_side = HandoffLaneSide::of(signed(front));
+    if front_side.is_none() && !reserved {
+        return Err(Failure::Boundary);
+    }
     let regions = body_regions(c, bound, &pose, coords, work)?;
+    let increasing = bound.trace.stations_mm[0] < bound.trace.stations_mm[1];
     let mut witnesses = [None; 2];
+    let mut leading: [Option<I>; 2] = [None; 2];
+    if let Some(side) = front_side {
+        leading[side as usize] = Some(front.station);
+    }
     let [long, lat, height] = coords;
     for a in [long.lo, long.hi, long.lo.midpoint(long.hi)] {
         for b in [lat.lo, lat.hi] {
@@ -252,29 +311,40 @@ fn stations(
                 let p = pose.point(I::point(a), I::point(b), I::point(z));
                 let projected = c.surface.project(horizontal(p), work)?;
                 if let Some(side) = HandoffLaneSide::of(signed(projected)) {
-                    witnesses[side as usize].get_or_insert(projected.station);
+                    let i = side as usize;
+                    witnesses[i].get_or_insert(projected.station);
+                    // 任一侧的后角可先被找到。越线证据另选保证沿行驶方向最靠前的点。
+                    let previous = leading[i].get_or_insert(projected.station);
+                    if (increasing && projected.station.lo > previous.lo)
+                        || (!increasing && projected.station.hi < previous.hi)
+                    {
+                        *previous = projected.station;
+                    }
                 }
             }
-        }
-        if (0..2).all(|i| regions[i].is_some() == witnesses[i].is_some()) {
-            break;
         }
     }
     let mut sides = [None; 2];
     let rear = c.surface.project(horizontal(pose.rear), work)?;
     for i in 0..2 {
-        match (regions[i], witnesses[i]) {
-            (Some(coords), Some(witness)) => {
+        match (regions[i], witnesses[i], leading[i]) {
+            (Some(coords), Some(witness), Some(leading)) => {
                 let enclosure = station_enclosure(c, &pose, coords, rear, work)?;
-                sides[i] = Some(Side { enclosure, witness });
+                sides[i] = Some(Side {
+                    enclosure,
+                    witness,
+                    leading,
+                });
             }
-            (None, None) => {}
+            (None, None, _) => {}
             _ => return Err(Failure::Boundary),
         }
     }
     Ok(Stations {
+        pose: pose.bounds(),
         front_side,
         front: front.station,
+        front_ground: [x, front.height, z],
         sides,
     })
 }
@@ -288,37 +358,126 @@ impl SharedNetworkRevision {
         q: &HandoffQuery,
         window: HandoffWindow,
         body: BodyEnvelope,
-        rear_stations_nm: [u64; 2],
+        rear: HandoffStationRange,
         work_limit: u32,
     ) -> HandoffFootprintReport {
+        let (result, work) = self.handoff_footprint_and_pose(q, window, body, rear, work_limit);
+        HandoffFootprintReport {
+            footprint: result.map(|(footprint, _)| footprint),
+            work,
+        }
+    }
+
+    /// 从同一次车体求值读回前杠、两侧占用和后轴参考点及三轴的分量界。
+    /// 返回值的第二项是实际工作数；跨平滑接缝时姿态界同时覆盖两侧。
+    pub fn handoff_footprint_and_pose(
+        &self,
+        q: &HandoffQuery,
+        window: HandoffWindow,
+        body: BodyEnvelope,
+        rear: HandoffStationRange,
+        work_limit: u32,
+    ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
+        self.footprint_and_pose(q, window, body, rear, work_limit, false)
+    }
+
+    /// 已持有组合预约的轨迹可在前杠侧别未定时保留源游标。两侧均须有实体见证，
+    /// 前杠在各侧须唯一对应已登记边且整个站位外包在允许窗口内；此结果不能授予预约。
+    pub fn reserved_handoff_footprint_and_pose(
+        &self,
+        q: &HandoffQuery,
+        window: HandoffWindow,
+        body: BodyEnvelope,
+        rear: HandoffStationRange,
+        work_limit: u32,
+    ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
+        self.footprint_and_pose(q, window, body, rear, work_limit, true)
+    }
+
+    fn footprint_and_pose(
+        &self,
+        q: &HandoffQuery,
+        window: HandoffWindow,
+        body: BodyEnvelope,
+        rear: HandoffStationRange,
+        work_limit: u32,
+        reserved: bool,
+    ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
         let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
         let mut run = || {
-            let offsets = body_side::body_offsets(q, body, rear_stations_nm)?;
+            let offsets = body_side::body_offsets(q, body, rear.0)?;
             let bound = bind(self, q, window, &mut work)?;
             let query = bound.query(q);
             let c = Candidate::bind(self, &query, &mut work)?;
-            let positions = stations(&c, &bound, body, offsets, &mut work)?;
+            let positions = stations(&c, &bound, body, offsets, reserved, &mut work)?;
             let mut address = |i, s| map_side(self, q, &bound, i, s, &mut work);
-            let front = address(positions.front_side as usize, positions.front)?;
+            let front_side = positions.front_side.unwrap_or(HandoffLaneSide::Source);
+            let front = address(front_side as usize, positions.front)?;
+            let possible_target_front = if positions.front_side.is_none() {
+                let range = front.stations;
+                let [low, high] = window.stations_nm()?;
+                let target = address(HandoffLaneSide::Target as usize, positions.front)?;
+                let mut target_addresses = target.addresses();
+                let (Some(target), None) = (target_addresses.next(), target_addresses.next())
+                else {
+                    return Err(Failure::Boundary);
+                };
+                if positions.sides.iter().any(Option::is_none)
+                    || range[0] < low
+                    || range[1] > high
+                    || !front.addresses().map(|a| a.edge).eq([window.edges[0]])
+                    || target.edge != window.edges[1]
+                {
+                    return Err(Failure::Boundary);
+                }
+                Some(target)
+            } else {
+                None
+            };
             let mut sides = [None, None];
             for (i, side) in positions.sides.into_iter().enumerate() {
                 if let Some(side) = side {
+                    let [lo, hi] = nanometres(side.leading)?;
                     sides[i] = Some(HandoffSideFootprint {
                         enclosure: address(i, side.enclosure)?,
                         witness: address(i, side.witness)?,
+                        // 只保存可严格越过的整数毫米截面；恰好接触时不能放行。
+                        passed: if q.rear_stations_mm[0] < q.rear_stations_mm[1] {
+                            PassedStations::Below(lo.div_ceil(NM_PER_MM))
+                        } else {
+                            PassedStations::Above(hi / NM_PER_MM)
+                        },
                     });
                 }
             }
-            Ok(HandoffFootprint {
-                front_side: positions.front_side,
-                front,
-                sides,
-            })
+            Ok((
+                HandoffFootprint {
+                    front_side,
+                    front,
+                    front_ground_mm: ground_millimetres(positions.front_ground),
+                    possible_target_front,
+                    sides,
+                },
+                positions.pose,
+            ))
         };
         let footprint = run();
-        HandoffFootprintReport {
-            footprint,
-            work: work.used,
+        (footprint, work.used)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn front_ground_rounds_signed_coordinates_outward_and_rejects_overflow() {
+        assert_eq!(
+            ground_millimetres([I::point(-0.0015), I::ZERO, I::point(0.0025)]),
+            Some([[-2, -1], [0, 0], [2, 3]])
+        );
+        for value in [f64::NAN, f64::INFINITY, -1e16, 1e16] {
+            assert!(ground_millimetres([I::point(value); 3]).is_none());
         }
     }
 }

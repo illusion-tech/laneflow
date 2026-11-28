@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-parking-system"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-16"
+revised_date = "2026-11-27"
 summary = "定义停车资源、预留、停入、离场与车辆移除。"
 scope = "ParkingFacility / ParkingSpace 静态模型、显式与虚拟停车资源、 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界"
 applicability = "#applicability"
@@ -341,20 +341,15 @@ occurrence 无法在 repeated-edge route 上无损迁移当前 cursor。`ParkedV
 携带的是 Parked 状态必须保留的 retained route cursor，不是 entry/exit selector，也不授予
 lane occupancy；命令固定提交 `speed_mm_s = 0`、`carry_um = 0` 和零 acceleration。
 
-对 Reserved entry 定义唯一的前向可达谓词。设当前或映射后的 cursor 为
-`(c_occ, c_progress_mm, c_carry_um)`，entry 为 `(e_occ, e_progress_mm)`：
+Reserved entry 的前向可达性比较当前或映射后的路线出现序号与已提交整数毫米进度。
 
 ```text
-forward_reachable :=
-  e_occ > c_occ
-  || (e_occ == c_occ
-      && (e_progress_mm > c_progress_mm
-          || (e_progress_mm == c_progress_mm && c_carry_um == 0)))
+forward_reachable := (current_occurrence, current_progress_mm) <= (entry_occurrence, entry_progress_mm)
 ```
 
-`carry_um > 0` 表示车辆已越过同一整数毫米位置；此时相同 `progress_mm` 的 anchor 在物理
-上已经位于车辆后方，不能因整数主值相等而接受。该谓词用于 reserve、rebind、snapshot
-restore 与 cutover revalidation；不得退化为只比较 occurrence 或裸 `>= progress_mm`。
+车辆在同一出现位置且进度等于入口毫米时，入口可达；超过该毫米或驶过该出现位置时拒绝。
+运动积分余数留给下一拍累积。reserve、rebind、snapshot restore 与 cutover revalidation
+使用同一谓词。
 
 ### 5.2 Reserve
 
@@ -378,6 +373,8 @@ Runtime 不在多个 entry 之间自动选一个，也不接受已经位于 comm
 Reserved Active vehicle 仍由 route/lane position 提供 authority。所选 entry 进入现行
 ParkingStop/constraint/traversal 边界：车辆不能越过目标后仍保持未解释 reservation。
 
+车辆申请横移时，若从候选结束处的目标侧前杠出发已无法沿路线抵达预约入口，世界保留停车预约，车辆继续按原路线行驶。已经进入横移的车辆再申请停车时，也从该前杠的路线出现和边内进度核对可达性。入口恰在候选终点或其后的普通续行范围内时，车辆仍须在所选入口零速到达。到达观测取自最终提交的车辆位置和速度。
+
 arrival 是 committed observation/query state，不新增可任意写入的 public `Arrived`
 vehicle status。它只在以下五项同时成立时为真：
 
@@ -385,10 +382,10 @@ vehicle status。它只在以下五项同时成立时为真：
 2. vehicle 当前 route handle 仍是 reservation 绑定的 route；
 3. 当前 `route_edge_index` 等于 reservation 保存的 exact entry occurrence；
 4. 当前 `progress_mm` 精确等于所选 entry anchor 的整数毫米 `progress_mm`；
-5. `speed_mm_s == 0` 且 `carry_um == 0`。
+5. `speed_mm_s == 0`。
 
-不得用距离容差、同一 LaneEdge 上任意 progress、零速但非零 carry 或“已经越过”近似
-arrival。到达提交若由 ParkingStop 截停，必须一次把 occurrence/progress 归一到上述 exact
+落在入口前后相邻毫米、另一处路线出现位置或仍有速度时，arrival 为假。
+到达提交若由 ParkingStop 截停，必须一次把 occurrence/progress 归一到上述 exact
 值并把 speed/carry 清零。信号、leader、waiting/conflict 和 ParkingStop 从同一
 tick-start snapshot 归约 final admissible motion；数值 target 完全相同时，归因顺序沿用
 `SignalStop -> ParkingStop -> RouteEnd`，只改变 observation attribution，不改变运动结果。
@@ -399,10 +396,9 @@ tick-start snapshot 归约 final admissible motion；数值 target 完全相同�
 内部不变量错误失败关闭。
 
 #1272 下 ParkingStop 的接近过程由停止目标速度归约承担（目标速度 0、制动前视窗
-查询）；**停车到位拍维持当拍零速并清零 carry**——arrival 的 exact 谓词（零速零
-carry）是本合同的现行义务，到位拍清零列入 integer-geometry 的具名例外清单，
-不改为带残余速度的衰减到位。归因顺序只是 observation attribution，不作速度
-决策序。
+查询）。ParkingStop 截停提交零速并清零运动余数。车辆已停在入口毫米、又由 reserve 或
+rebind 建立预约时，命令可直接观察到位；随后 park 命令将运动余数归零。
+同值归因只用于 observation attribution。
 
 ### 5.4 Park
 
@@ -451,6 +447,8 @@ exit 或 virtual selector，speed/carry/acceleration 均为零。提交前必须
    目标但 emergency-feasible 的 gap 由后续 Following 自然恢复；
 4. 不借用当前 SignalStop、ParkingStop、Waiting/Conflict constraint 来放宽 gap，也不在
    leave 命令中修改 follower、tick 或事件。
+
+若已有车辆持有横移预约，驶出车辆还要满足普通放车使用的保护区准入条件。沿驶出路线从静止前杠到前方保护区入口的距离须达到该车型的最小间距。间距为 2,500 毫米时，2,499 毫米须保留原泊位，恰有 2,500 毫米时此项检查通过。前杠触及保护区入口时视为占用。下游保护区为半开区间，驶出车辆的车尾恰在终点时已清空该区间。
 
 离场的 follower 查询复用每世界 `DerivedIndexes.occupancy`，构建缓冲归
 `TickWorkspace`。索引只在成功重建后绑定 `(WorldGeneration,
@@ -551,7 +549,7 @@ reserve/rebind 的成功 record、输入命令日志与 replay payload 都保存
 - Parked vehicle 不进入 lane occupancy、leader、vehicle-following、signal/waiting/conflict
   projection、longitudinal motion 或 route traversal。
 - Reserved Active vehicle仍正常参与上述道路行为，并受所选 entry 的 ParkingStop 约束。
-- arrival 只按 §5.3 的 exact occurrence/progress/zero-speed/zero-carry 谓词成立；
+- arrival 按 §5.3 的 exact occurrence/integer-mm progress/zero-speed 谓词成立；
   `SignalStop -> ParkingStop -> RouteEnd` 的同值归因顺序保持不变。
 - arrival query 始终从 committed state 派生；successful step 只在 tick-start 为 false、提交后
   为 true 时产生一次 arrival observation。reserve/rebind 命令若直接建立 already-arrived
@@ -777,11 +775,10 @@ Active 插入/删除仍有 `O(A_i)` 查找或连续内存移动。位置表保�
 - 多入口 reservation 精确绑定，错误入口/route occurrence 失败零副作用；
 - 同一 LaneEdge 上两个不同 progress 的 virtual anchor 必须由 selector 区分；只给
   facility + route occurrence 的输入在类型/校验边界不可表达；
-- arrival 必须覆盖 exact occurrence、exact integer-mm anchor、`speed_mm_s=0`、
-  `carry_um=0` 四个维度的单项反例，并覆盖
+- arrival 必须覆盖路线出现位置、整数毫米入口与零速的单项反例，并覆盖
   `SignalStop -> ParkingStop -> RouteEnd` exact-tie attribution；
-- reserve/rebind 的前向可达反例覆盖 occurrence 在后、同 occurrence progress 在后、同
-  `progress_mm` 但 `carry_um>0`，以及 exact anchor + zero carry；
+- reserve/rebind 拒绝已驶过的出现位置与同一出现位置上已驶过的毫米；
+  相同入口毫米取 `carry_um` 为 0、1 或 999 时，到位和可达结果相同；
 - park 前未到达、重复 park、错误 target、stale handle；
 - 多出口 leave、same-edge/相邻边/车身跨边/repeated occurrence overlap、移动 direct
   follower unsafe 与静止 follower、错误出口；direct follower 覆盖 gap 小于/等于/略高于

@@ -395,6 +395,26 @@ mod tests {
     }
 
     #[test]
+    fn station_encodings_with_old_units_are_rejected_before_reading_sections() {
+        for (kind, version) in [
+            (PortableObjectKind::CanonicalArtifact, 7_u16),
+            (PortableObjectKind::SourceMap, 8),
+            (PortableObjectKind::SemanticDiff, 6),
+        ] {
+            let mut bytes = object_bytes(kind, &vec![16; kind.section_count() as usize]);
+            bytes[4..6].copy_from_slice(&version.to_le_bytes());
+            assert_eq!(
+                preflight_object_framing(&bytes, kind, FormatLimits::HARD).unwrap_err(),
+                FormatError::UnsupportedVersion {
+                    structure: FormatStructure::ObjectPreamble,
+                    actual: u64::from(version),
+                    expected: u64::from(kind.format_version())
+                }
+            );
+        }
+    }
+
+    #[test]
     fn all_object_kinds_use_frozen_directory_anchors() {
         for kind in PortableObjectKind::ALL {
             let section_lengths = vec![4_u64; kind.section_count() as usize];

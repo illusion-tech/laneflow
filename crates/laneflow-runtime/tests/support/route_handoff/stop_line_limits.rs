@@ -1,8 +1,87 @@
 use super::stop_line::{SourceStop, car_trial, road_lanes, stop_world};
 use super::*;
-use laneflow_runtime::deterministic_state_digest;
+use laneflow_runtime::{TrafficWorld, deterministic_state_digest};
 use laneflow_static_network::StationQuery;
 use laneflow_static_network::vehicle::Failure;
+
+#[test]
+fn both_stop_lines_share_one_sweep_and_report_its_work_on_target_failure() {
+    let direction = RoadEditingLaneDirection::Forward;
+    let source_only = stop_world(SourceStop::OnOccurrence, direction);
+    let both = stop_world(SourceStop::Both, direction);
+    let revision = both.revision();
+    let (_, source, target) = road_lanes(&revision);
+    let source_line = source[2];
+    let target_line = target[0];
+    for (edge, station) in [(source_line, 35_000), (target_line, 10_000)] {
+        assert!(
+            revision
+                .traffic()
+                .relations()
+                .stop_line_for_edge(edge)
+                .is_some()
+        );
+        assert_eq!(
+            revision.station_mapping().edge_end_station_mm(edge),
+            Some(station)
+        );
+    }
+    let preview = |world: &TrafficWorld, rear_m: [u64; 2], budget| {
+        let revision = world.revision();
+        let (section, source, target) = road_lanes(&revision);
+        // 两个版本的物理切点相同，目标段从停止线下游 t1 开始。
+        let mut edges = source[..=2].to_vec();
+        edges.extend_from_slice(&target[1..]);
+        let binding = world
+            .bind_route_handoff(
+                &RouteRegisterInput::new(edges),
+                RouteHandoffOccurrence {
+                    revision: revision.network_revision(),
+                    source_index: 2,
+                    owner: BoundaryOwner::Section(section),
+                    left_index: 0,
+                    stations_mm: [14_000, 25_000],
+                },
+            )
+            .unwrap();
+        let mut trial = car_trial(&revision, rear_m.map(|m| m * 1_000));
+        trial.limits.sweep = budget;
+        let check = world.preview_route_handoff(&binding, &trial)?;
+        assert!(
+            matches!(check.report.outcome, HandoffOutcome::Located { .. }),
+            "{check:?}"
+        );
+        let before_stop =
+            check.report.work + check.report.geometry.unwrap().sweep.work + check.side_access_work;
+        Ok((before_stop, check.stop_line_work))
+    };
+    let (before_stop, once) =
+        preview(&source_only, [10, 30], GeometryWorkLimits::STANDARD.sweep).unwrap();
+    assert!(once > 1);
+    let exact = before_stop + once;
+    assert_eq!(preview(&both, [10, 30], exact), Ok((before_stop, once)));
+    assert_eq!(
+        preview(&both, [10, 30], exact - 1),
+        Err(RouteHandoffTrialError::StopLineUnproven {
+            edge: source_line,
+            reason: Some(Failure::WorkLimit),
+            work: once - 1,
+        })
+    );
+
+    // 起点提前：源侧仍在 35 m 前清空，目标侧外包触及 10 m。
+    let (before_stop, once) =
+        preview(&source_only, [1, 31], GeometryWorkLimits::STANDARD.sweep).unwrap();
+    assert!(once > 1);
+    assert_eq!(
+        preview(&both, [1, 31], before_stop + once),
+        Err(RouteHandoffTrialError::StopLineUnproven {
+            edge: target_line,
+            reason: None,
+            work: once,
+        })
+    );
+}
 
 #[test]
 fn reverse_handoff_uses_the_original_sweep_budget_to_clear_the_source_stop_line() {
@@ -30,12 +109,12 @@ fn reverse_handoff_uses_the_original_sweep_budget_to_clear_the_source_stop_line(
                     source_index: 2,
                     owner: BoundaryOwner::Section(section),
                     left_index: 0,
-                    stations_nm: [start - 16, start - 14].map(|s| s * 1_000_000_000),
+                    stations_mm: [start - 16, start - 14].map(|s| s * 1_000),
                 },
             )
             .unwrap()
     };
-    let trial = |start: u64| car_trial(&revision, [start, start - 30].map(|s| s * 1_000_000_000));
+    let trial = |start: u64| car_trial(&revision, [start, start - 30].map(|s| s * 1_000));
     let binding = bind(46, 1);
     let relations = revision.traffic().relations();
     let source_lane = relations.lane_edge_authoring_lane(src[2]).unwrap();
@@ -45,7 +124,7 @@ fn reverse_handoff_uses_the_original_sweep_budget_to_clear_the_source_stop_line(
     let StationQuery::Complete(seam) =
         revision
             .station_mapping()
-            .at_station(area.corridor(), 15_000_000_000, source_lane)
+            .at_station(area.corridor(), 15_000, source_lane)
     else {
         panic!("未定位反向停止线")
     };
@@ -109,11 +188,11 @@ fn target_access_denial_precedes_source_stop_line_sweep() {
                 source_index: 2,
                 owner: BoundaryOwner::Section(section),
                 left_index: 0,
-                stations_nm: [18_000_000_000, 20_000_000_000],
+                stations_mm: [18_000, 20_000],
             },
         )
         .unwrap();
-    let mut trial = car_trial(&revision, [4_000_000_000, 34_000_000_000]);
+    let mut trial = car_trial(&revision, [4_000, 34_000]);
     let full = world.preview_route_handoff(&binding, &trial).unwrap();
     assert!(matches!(
         full.report.outcome,

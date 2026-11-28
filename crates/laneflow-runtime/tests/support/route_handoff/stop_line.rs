@@ -1,7 +1,7 @@
 use super::*;
 use laneflow_compiler::{GateInterpretation, GateProhibition, RegulationIdentity};
 use laneflow_runtime::{TrafficWorld, deterministic_state_digest};
-use laneflow_static_contract::LaneEdgeOrdinal;
+use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal, SignalAspect};
 use laneflow_static_network::{SharedNetworkRevision, vehicle::HandoffLaneSide};
 
 #[derive(Clone, Copy)]
@@ -9,58 +9,61 @@ pub(super) enum SourceStop {
     OnOccurrence,
     OnContinuation,
     Upstream,
+    Both,
+    WithTurn,
+    ParallelFork,
+    TargetSignal(&'static [(&'static str, SignalAspect, u64)]),
+    TargetConflict,
 }
 
 impl SourceStop {
     pub(super) fn add_to(self, builder: &mut RoadEditingSourceModuleBuilder) {
         use RoadEditingDeclaration as D;
         let (entry, exit) = match self {
-            Self::OnOccurrence => ("s2", "s3"),
+            Self::OnOccurrence | Self::Both => ("s2", "s3"),
             Self::OnContinuation => ("s3", "s4"),
-            Self::Upstream => ("s1", "s2"),
+            Self::Upstream | Self::WithTurn | Self::ParallelFork => ("s1", "s2"),
+            Self::TargetSignal(_) | Self::TargetConflict => ("t1", "t2"),
         };
-        let edge = |key| LaneEdgeReference::local(key).unwrap();
-        let junction = JunctionReference::local("junction").unwrap();
-        let movement =
-            MovementReference::owner_scoped(vec!["junction".into()], "straight").unwrap();
-        let path =
-            ManeuverPathReference::owner_scoped(vec!["junction".into(), "straight".into()], "path")
-                .unwrap();
-        let gate = ManeuverGateReference::owner_scoped(
-            vec!["junction".into(), "straight".into(), "path".into()],
-            "entry",
-        )
-        .unwrap();
-        let rule = PolicyGateRuleInput::try_new(
-            "entry",
-            gate,
-            None,
-            GateInterpretation::Uncontrolled,
-            GateProhibition::None,
-            vec![],
-        )
-        .unwrap();
-        for declaration in [
-            D::Junction(
-                JunctionInput::try_new("junction", vec![edge(entry), edge(exit)], vec![]).unwrap(),
-            ),
-            D::Movement(MovementInput::try_new("straight", junction, entry, exit).unwrap()),
-            D::ManeuverPath(
-                ManeuverPathInput::try_new("path", movement, edge(entry), vec![], edge(exit))
-                    .unwrap(),
-            ),
-            D::StopLine(StopLineInput::try_new("stop", edge(entry)).unwrap()),
-            D::ManeuverGate(
-                ManeuverGateInput::try_new(
-                    "entry",
-                    path,
-                    0,
-                    StopLineReference::local("stop").unwrap(),
-                    RoadEditingSignalControl::None,
-                )
-                .unwrap(),
-            ),
-            D::RightOfWayPolicySet(
+        let mut rules = Vec::new();
+        if matches!(self, Self::WithTurn | Self::ParallelFork) {
+            let p = |x, z| RoadEditingPoint3::try_new(x, 0., z).unwrap();
+            let turn = RoadEditingCurveProgram::try_new(
+                p(0., 12.),
+                vec![RoadEditingCurveSegment::cubic_bezier(
+                    p(0., 42.),
+                    p(30., 72.),
+                    p(70., 72.),
+                )],
+            )
+            .unwrap();
+            add_road_editing_approach(builder, "turn-exit", turn, vec![]);
+            if matches!(self, Self::ParallelFork) {
+                return;
+            }
+            add_stop(builder, entry, &[exit, "turn-exit"], &mut rules, &[]);
+        } else {
+            add_stop(
+                builder,
+                entry,
+                &[exit],
+                &mut rules,
+                match self {
+                    Self::TargetSignal(phases) => phases,
+                    _ => &[],
+                },
+            );
+        }
+        if let Self::Both = self {
+            add_stop(builder, "t0", &["t1"], &mut rules, &[]);
+        }
+        let streams = if let Self::TargetConflict = self {
+            add_target_passages(builder)
+        } else {
+            Vec::new()
+        };
+        builder
+            .add_declaration(D::RightOfWayPolicySet(
                 RightOfWayPolicySetInput::try_new(
                     "conflict-policy",
                     RegulationIdentity::try_new("engineering", "fixture-1")
@@ -69,8 +72,179 @@ impl SourceStop {
                         .unwrap(),
                     vec![],
                     vec![],
-                    vec![],
-                    vec![rule],
+                    streams,
+                    rules,
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+}
+
+fn add_target_passages(builder: &mut RoadEditingSourceModuleBuilder) -> Vec<PolicyStreamRuleInput> {
+    use RoadEditingDeclaration as D;
+    let junction = JunctionReference::local("t1").unwrap();
+    let zone = ConflictZoneReference::owner_scoped(vec!["t1".into()], "zone").unwrap();
+    let path = ManeuverPathReference::owner_scoped(vec!["t1".into(), "t2".into()], "path").unwrap();
+    let gate =
+        ManeuverGateReference::owner_scoped(vec!["t1".into(), "t2".into(), "path".into()], "entry")
+            .unwrap();
+    builder
+        .add_declaration(D::ConflictZone(
+            ConflictZoneInput::try_new("zone", junction.clone()).unwrap(),
+        ))
+        .unwrap();
+    let mut rules = Vec::new();
+    for (key, exit_m) in [("through-a", 0.3), ("through-b", 0.4)] {
+        rules.push(
+            PolicyStreamRuleInput::try_new(
+                key,
+                ParticipantStreamReference::owner_scoped(vec!["t1".into()], key).unwrap(),
+                None,
+                0,
+                vec![],
+                None,
+                vec![],
+            )
+            .unwrap(),
+        );
+        builder
+            .add_declaration(D::ParticipantStream(
+                ParticipantStreamInput::try_new(
+                    key,
+                    junction.clone(),
+                    path.clone(),
+                    vec![ConflictPassageInput::new(
+                        zone.clone(),
+                        PathAnchorInput::gate(gate.clone()),
+                        PathAnchorInput::interior(1, exit_m).unwrap(),
+                    )],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+    builder
+        .add_conflict_zone_region(
+            ConflictZoneRegionInput::try_new(
+                zone,
+                CanonicalFrameReference::local("frame-main").unwrap(),
+                -1.,
+                1.,
+                [(-4., 33.2), (-3., 33.2), (-3., 33.6), (-4., 33.6)]
+                    .map(|(x, z)| RoadEditingPoint2::try_new(x, z).unwrap())
+                    .into(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    rules
+}
+
+fn add_stop(
+    builder: &mut RoadEditingSourceModuleBuilder,
+    entry: &str,
+    exits: &[&str],
+    rules: &mut Vec<PolicyGateRuleInput>,
+    phases: &[(&str, SignalAspect, u64)],
+) {
+    use RoadEditingDeclaration as D;
+    let edge = |key: &str| LaneEdgeReference::local(key).unwrap();
+    let group = SignalGroupReference::local("through").unwrap();
+    let signal = !phases.is_empty();
+    if signal {
+        builder
+            .add_declaration(D::SignalGroup(
+                SignalGroupInput::try_new("through").unwrap(),
+            ))
+            .unwrap();
+        builder
+            .add_declaration(D::SignalController(
+                SignalControllerInput::try_new(
+                    "control",
+                    0,
+                    vec![group.clone()],
+                    phases
+                        .iter()
+                        .map(|&(name, _, _)| {
+                            SignalPhaseReference::owner_scoped(vec!["control".into()], name)
+                                .unwrap()
+                        })
+                        .collect(),
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+        for &(name, aspect, duration_ms) in phases {
+            builder
+                .add_declaration(D::SignalPhase(
+                    SignalPhaseInput::try_new(
+                        name,
+                        duration_ms,
+                        vec![RoadEditingSignalPhaseState::try_new(group.clone(), aspect).unwrap()],
+                        SignalControllerReference::local("control").unwrap(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+        }
+    }
+    let approaches = std::iter::once(entry)
+        .chain(exits.iter().copied())
+        .map(edge)
+        .collect();
+    builder
+        .add_declaration(D::Junction(
+            JunctionInput::try_new(entry, approaches, vec![]).unwrap(),
+        ))
+        .unwrap();
+    builder
+        .add_declaration(D::StopLine(
+            StopLineInput::try_new(entry, edge(entry)).unwrap(),
+        ))
+        .unwrap();
+    for &exit in exits {
+        let junction = JunctionReference::local(entry).unwrap();
+        let movement = MovementReference::owner_scoped(vec![entry.into()], exit).unwrap();
+        let path =
+            ManeuverPathReference::owner_scoped(vec![entry.into(), exit.into()], "path").unwrap();
+        let gate = ManeuverGateReference::owner_scoped(
+            vec![entry.into(), exit.into(), "path".into()],
+            "entry",
+        )
+        .unwrap();
+        rules.push(
+            PolicyGateRuleInput::try_new(
+                exit,
+                gate,
+                None,
+                if signal {
+                    GateInterpretation::ProtectedGroup
+                } else {
+                    GateInterpretation::Uncontrolled
+                },
+                GateProhibition::None,
+                vec![],
+            )
+            .unwrap(),
+        );
+        for declaration in [
+            D::Movement(MovementInput::try_new(exit, junction, entry, exit).unwrap()),
+            D::ManeuverPath(
+                ManeuverPathInput::try_new("path", movement, edge(entry), vec![], edge(exit))
+                    .unwrap(),
+            ),
+            D::ManeuverGate(
+                ManeuverGateInput::try_new(
+                    "entry",
+                    path,
+                    0,
+                    StopLineReference::local(entry).unwrap(),
+                    if signal {
+                        RoadEditingSignalControl::SignalGroup(group.clone())
+                    } else {
+                        RoadEditingSignalControl::None
+                    },
                 )
                 .unwrap(),
             ),
@@ -97,8 +271,10 @@ pub(super) fn road_lanes(
     revision: &SharedNetworkRevision,
 ) -> (RoadSectionOrdinal, &[LaneEdgeOrdinal], &[LaneEdgeOrdinal]) {
     let rel = revision.traffic().relations();
-    let section = [0, 1]
-        .into_iter()
+    let section = (0..revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::RoadSection))
         .map(RoadSectionOrdinal::from_raw)
         .find(|&section| rel.section_lanes(section).unwrap().len() == 2)
         .unwrap();
@@ -112,15 +288,15 @@ pub(super) fn road_lanes(
 
 pub(super) fn car_trial(
     revision: &SharedNetworkRevision,
-    rear_stations_nm: [u64; 2],
+    rear_stations_mm: [u64; 2],
 ) -> RouteHandoffTrial {
     RouteHandoffTrial {
         profile: revision
             .identity()
             .stable_id(conflict_profile(revision, "car"))
             .unwrap(),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm,
+        station_window_mm: [0, 50_000],
+        rear_stations_mm,
         speed_m_s: 1.,
         limits: GeometryWorkLimits::STANDARD,
     }
@@ -165,11 +341,11 @@ fn source_stop_line_allows_a_cleared_handoff_and_rejects_an_overlapping_sweep() 
                         source_index: 2,
                         owner: BoundaryOwner::Section(section),
                         left_index: 0,
-                        stations_nm: [start + 14, start + 16].map(|m| m * 1_000_000_000),
+                        stations_mm: [start + 14, start + 16].map(|m| m * 1_000),
                     },
                 )
                 .unwrap();
-            let trial = car_trial(&revision, [start, start + 30].map(|m| m * 1_000_000_000));
+            let trial = car_trial(&revision, [start, start + 30].map(|m| m * 1_000));
             let result = world.preview_route_handoff(&binding, &trial);
             if start == 4 {
                 let preview = result.unwrap();
@@ -178,14 +354,14 @@ fn source_stop_line_allows_a_cleared_handoff_and_rejects_an_overlapping_sweep() 
                     HandoffOutcome::Located { .. }
                 ));
                 let end = preview
-                    .sample_after_travel(0, 30_000_000, 5_000_000, trial.limits)
+                    .sample_after_travel(0, 30_000, TRAVEL_TOLERANCE_MM, trial.limits)
                     .unwrap()
                     .sample
                     .unwrap()
                     .footprint;
                 assert!(end.sides[0].is_none());
                 assert_eq!(end.front_side, HandoffLaneSide::Target);
-                assert!(end.front.stations_nm()[0] > 35_000_000_000);
+                assert!(end.front.stations_mm()[0] > 35_000);
             } else {
                 assert!(matches!(
                     result.unwrap_err(),
@@ -204,7 +380,7 @@ fn upstream_stop_line_uses_only_the_maneuver_present_at_this_occurrence() {
     let world = stop_world(SourceStop::Upstream, RoadEditingLaneDirection::Forward);
     let revision = world.revision();
     let (section, src, dst) = road_lanes(&revision);
-    let trial = car_trial(&revision, [10_000_000_000, 40_000_000_000]);
+    let trial = car_trial(&revision, [10_000, 40_000]);
     for (start_index, revisit) in [(0, false), (2, false), (2, true)] {
         let mut edges = src[start_index..=2].to_vec();
         edges.extend_from_slice(&dst[1..]);
@@ -221,7 +397,7 @@ fn upstream_stop_line_uses_only_the_maneuver_present_at_this_occurrence() {
                     source_index: u32::try_from(2 - start_index).unwrap(),
                     owner: BoundaryOwner::Section(section),
                     left_index: 0,
-                    stations_nm: [24_000_000_000, 26_000_000_000],
+                    stations_mm: [24_000, 26_000],
                 },
             )
             .unwrap();
@@ -249,11 +425,11 @@ fn upstream_stop_line_uses_only_the_maneuver_present_at_this_occurrence() {
                 source_index: 0,
                 owner: BoundaryOwner::Section(section),
                 left_index: 0,
-                stations_nm: [34_000_000_000, 38_000_000_000],
+                stations_mm: [34_000, 38_000],
             },
         )
         .unwrap();
-    let trial = car_trial(&revision, [25_000_000_000, 45_000_000_000]);
+    let trial = car_trial(&revision, [25_000, 45_000]);
     assert!(matches!(
         world
             .preview_route_handoff(&binding, &trial)

@@ -229,8 +229,7 @@ authority，此时返回各生命周期入口的 `ConflictAuthorityRequired`。r
 - `runtime_state_version: 3 -> 4`；
 - deterministic digest `5 -> 6`。
 
-当前唯一入口为 LFRS 7 / runtime state 5 / digest 8；执行配置分离与编辑来源绑定只推进容器版本，#1035
-只更换摘要算法与摘要版本，见
+当前入口为 LFRS 8 / runtime state 6 / digest 9。每车的路口预约保存精确的下游授权终点，恢复时自本次机动入口重建路线位置与物理区间。路线交接窗口和已提交横移进入同一组合。见
 [`traffic-runtime-snapshot.md`][runtime-snapshot] 与
 [`traffic-runtime-right-of-way-policy.md`][right-of-way]。
 只保留当前 writer/reader；旧版本快照明确失败关闭，不提供双读、双写、转换器、feature

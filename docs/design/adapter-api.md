@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-adapter-api"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-27"
+revised_date = "2026-11-28"
 summary = "定义引擎适配器与运行时、空间层的接口边界。"
 scope = "交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.20 specialization 见 bevy-reference-adapter.md"
 applicability = "#applicability"
@@ -72,9 +72,10 @@ related = ["adr-0001", "adr-0012", "adr-0013", "adr-0015", "adr-0016", "adr-0020
 
 适配器不得把宿主变换（Transform）反写为 Runtime 进度，也不得用引擎样条曲线长度覆盖共享静态路网 / Spatial 的长度绑定。
 
-对任意位置换道，设计要求适配器按修订、规范框架和提交拍读取车体参考点、三轴、路线出现和横移阶段，
-从同一修订读取路面、路幅和边界。宿主自行计算轮胎接触、悬架和最终车轮变换，可使用物理、动画或省略车轮表现。
-交通回放比较参考姿态、占用、事件与裁决。此项观测接口由 #1527 实施。[车体参考姿态][traffic-reference-pose]
+任意位置换道期间，适配器从同一提交拍读取车体参考点、三轴、路线出现和交接阶段。
+前杠地面锚点与后轴姿态使用同一修订、规范坐标框架与所属路面。宿主在此基础上可计算
+轮胎接触、悬架和最终车轮变换。开关车轮表现时，交通提交、预约与事件须逐拍一致。
+宿主的路幅与边界查询以及最终轮位表现由 #1527 跟踪。[车体参考姿态][traffic-reference-pose]
 
 [traffic-reference-pose]: cross-section-stationing-and-lateral-geometry.md#traffic-reference-pose
 
@@ -106,6 +107,11 @@ current 路径：
 
 Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `LaneFlowSession`。
 `LaneFlowSession::new` 在提供 Spatial 时强制 `Arc::ptr_eq`，失败为 `RevisionMismatch`。
+宿主可在每个固定拍的生命周期阶段调用 `LaneFlowSession::set_next_route_handoffs`，
+用按拍初状态生成的一批横移申请替换本 Session 待用的输入。下一次实际步进尝试消费整批，
+包括失败的尝试。零步进帧保留输入；同帧追赶的后续固定拍各自重新供给。
+同修订恢复或跨修订接管成功即丢弃旧世界尚待使用的输入。交通运行时裁决申请并提交运动。
+
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
 `register_route` / `spawn_vehicle` / `remove_route`，并通过 Session typed wrapper 调用
 `reserve_parking` / `cancel_parking` / `park_vehicle` / `leave_parking` /
@@ -124,6 +130,8 @@ Adapter 从 `TrafficWorld::committed_pose_sources()` 读取稳定顺序的
 Adapter 将批内身份和 Runtime 返回的来源直接传给 Spatial 的
 `PoseInput::from_source`。Bevy 宿主通过选择句柄指定车辆，来源由 Session 从当前
 世界读取，宿主自建的 `PoseInput` 不能代替该读取。根配对与整批提交均在 Session 内完成（§9）。
+活动横移有同拍的稀疏车体观测。全量或按需选择同一辆车，均用该观测生成前杠位置和车体朝向，
+并使用本批的记录序号关联后轴姿态。前杠刚换边或车尾刚离开源侧时仍沿已提交轨迹表现。
 跨包类型及其与横移同拍观测的边界见[位姿来源的归属][pose-source]。
 
 ```text

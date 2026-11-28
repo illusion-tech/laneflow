@@ -31,11 +31,11 @@ fn repeated_edge_pairs_require_distinct_ordered_occurrences_and_share_route_capa
         source_index: 0,
         owner: BoundaryOwner::Section(section),
         left_index: 0,
-        stations_nm: [24_000_000_000, 25_000_000_000],
+        stations_mm: [24_000, 25_000],
     };
     let second = RouteHandoffOccurrence {
         source_index: 6,
-        stations_nm: [24_000_000_000, 26_000_000_000],
+        stations_mm: [24_000, 26_000],
         ..first
     };
     let windows = [first, second];
@@ -54,8 +54,8 @@ fn repeated_edge_pairs_require_distinct_ordered_occurrences_and_share_route_capa
     };
     let trial = RouteHandoffTrial {
         profile: profile("car"),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm: [10_000_000_000, 40_000_000_000],
+        station_window_mm: [0, 50_000],
+        rear_stations_mm: [10_000, 40_000],
         speed_m_s: 1.,
         limits: GeometryWorkLimits::STANDARD,
     };

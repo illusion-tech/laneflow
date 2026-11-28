@@ -129,12 +129,14 @@ Validation：
 - `maxAcceleration` / `comfortableDeceleration` / `emergencyDeceleration` 量化到 `f32`
   后落在 `0.5..=50` m/s²，且 emergency ≥ comfort。
 - spawn 用 `progress_mm` / `speed_mm_s` 且 `carry_um = 0`。不另做速度余数。
+- 行程在跨拍相加后再提交整毫米，余数留给下一拍。例如速度保持 0.1 m/s、每拍
+  4 ms 时，每拍行程为 0.4 mm，五拍累计前进 2 mm。车道占用和停车入口仍读整数毫米。
 - `BeyondFinite` 降速目标本拍不参与包络。
 - 来源中的 profile 标识遵循编译器的 ASCII token 规则，并在 profile domain 内唯一。
 
 ### 4.2 持久化
 
-Vehicle Profile 现行持久化使用 [LFCA 7 的 `VehicleProfile` 表][artifact]（毫米 /
+Vehicle Profile 现行持久化使用 [LFCA 8 的 `VehicleProfile` 表][artifact]（毫米 /
 受检 `f32`）。
 
 - 每个 VehicleProfile 必须引用已声明 ParticipantClass；静态 AccessRule 在
@@ -157,7 +159,7 @@ register/remove/mutate API。tick 热路径只读取序号和紧凑 profile 数�
 
 所有道路机动车型在编制时都须声明构型，并提供该构型完整的几何与转向参数，包括只参与普通跟驰的车型。首版支持单个刚性车身、双轴、前轮转向且前后轮距相同的构型。下表九项对该构型全部必填，车长沿用 §4.1。
 两种官方编制前端和受检制品读方均须校验这些参数。缺项、非有限值、量化后失效或
-尺寸互相矛盾时，报告对应的车型和字段，拒绝发布或加载。LFCA 7 的车型几何与 §4.1 的纵向字段共用车型身份和修订。[车型几何的制品格式][geometry-format]
+尺寸互相矛盾时，报告对应的车型和字段，拒绝发布或加载。LFCA 8 的车型几何与 §4.1 的纵向字段共用车型身份和修订。[车型几何的制品格式][geometry-format]
 
 | 参数 | 交通侧用途与校验 |
 | ---- | ---------------- |
@@ -238,9 +240,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Traffic Runtime 没有足够世界几何判断分支间碰撞。
 - 共享边上若已出现重叠占用，跟车查询取最紧后杠；这不把重叠变成合法几何。
 
-**过渡投影衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`][lane-change-contract] §4）**：
-换道期间不生成投影占用记录，占用记录只表示实际车体，重叠分类沿用本节分档；过渡段
-资源格作为投影障碍，由换道合同 §5 的预约约束承担（#1220）。
+已进入横移的车身按实际触及的两侧区间参与跟车。保守扫过区间约束潜在进入者，实体重叠依据实际车身见证。保护维持到车尾清空。[最小换道合同][lane-change-contract]
 
 ### 6.5 状态参与
 
@@ -359,7 +359,7 @@ Physical constraints 不可绕过；regulatory constraints 由后续 policy subs
 
 #1272 把停止类 spatial target 冻结为**速度上界**归约（落地规则见
 `traffic-runtime-integer-geometry.md` §5）：denied 信号/策略门、已判定的
-Waiting/Conflict 停止、已知持续阻塞、过渡预约、停车入口与有限路终，在制动
+Waiting/Conflict 停止、已知持续阻塞、横移保护、停车入口与有限路终，在制动
 前视窗（§10.3）内以目标速度 `0` 参与「舒适可行域 → 紧急可行域 → 具名投影」
 级联；紧急减速下界在共同候选形成时施加。「尚未申请」的资源本身不构成停止
 目标；提前发现阻塞不等于提前申请或持有资源。求解器可行域（含本拍减速上界
@@ -767,7 +767,7 @@ Private：
 - 一万到十万不得呈现 `O(V^2)` 趋势。
 
 [lane-change-contract]: lane-change-minimal-contract.md
-[artifact]: portable-canonical-artifact.md#3-lfca-7
+[artifact]: portable-canonical-artifact.md#3-lfca-8
 [geometry-format]: portable-canonical-artifact.md#vehicle-profile-geometry-format
 [handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
 [parking-system]: parking-system.md

@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-compiler-foundation"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-26"
+revised_date = "2026-11-27"
 summary = "定义编译器中间表示、前端接入与编译基础合同。"
 scope = "laneflow-static-contract、laneflow-compiler、有类型抽象语法树（Typed Abstract Syntax Tree， Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层 中间表示（Mid-level Intermediate Representation，MIR）→已验证规范低层中间表示 （Validated Canonical Low-level Intermediate Representation，Canonical LIR）、 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断 （Diagnostic）与正本来源投影"
 applicability = "#applicability"
@@ -1222,7 +1222,7 @@ components；每个 component 分别消费 `StringItemCount`，实际 bytes 消�
 来源模块描述符。首版合成来源记录使用 `frontendVersion` 版本化的确定性长度前缀
 编码，精确字节以 `LFSOURCE` 魔数 / 域前缀开头，并对完整记录精确字节计算 SHA-256
 形成 #292 已接受的 `sourceContentDigest`；**编码**变化必须提升前端版本并更新已知向量。
-合成前端使用 `frontendVersion = 6`，绑定 Identity revision 4 与 LFCA 7。
+合成前端使用 `frontendVersion = 6`，绑定 Identity revision 4 与 LFCA 8。
 每个车型在纵向参数之后追加一字节构型、七个毫米量和两个规范 `f32` 转向上限，共 37 字节。
 准入后交通一维以整数毫米 / 受检 `f32` SI
 写入来源记录，不再写编制 `f64`。它使用 `ParkingFacility`，并把

@@ -260,7 +260,7 @@ pub struct Harness {
     pub scene: Scene,
     pub delta_ms: u64,
     pub steps: usize,
-    transaction: Option<CutoverTransaction>,
+    transaction: Option<CutoverTransaction<'static>>,
 }
 
 impl Harness {

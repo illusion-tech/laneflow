@@ -117,11 +117,11 @@ pub struct CutoverCommit {
 /// 解除日志武装始终显式发生在结算路径内。事务丢失后的世界级恢复入口为
 /// [`TrafficWorld::abandon_in_flight_cutover`]。
 #[must_use = "未以 commit 或 abandon 结算的切换事务会使其来源世界保持在途锁定"]
-pub struct CutoverTransaction {
+pub struct CutoverTransaction<'e> {
     /// 直移候选：`None` ⟺ 已结算（失败收尾整体丢弃，成功提交随事务
     /// 消耗析构）——已结算事务不滞留新旧根对象的任何 Arc 与动态表。
     candidate: Option<crate::kernel::execution::PreparedWorldState>,
-    rebinding: CrossRevisionRebinding,
+    rebinding: CrossRevisionRebinding<'e>,
     /// 目标根对象 origin 小值捕获：事件与摘要只需修订号与 origin，失败结算
     /// 后事务不滞留目标根对象的任何 Arc（骨架换绑回旧世界根共享）。
     target_origin: CanonicalNetworkOrigin,
@@ -176,7 +176,42 @@ impl TrafficWorld {
         lfsd_bytes: &[u8],
         limits: &CutoverPreflightLimits,
         transaction_limits: &CutoverTransactionLimits,
-    ) -> Result<CutoverTransaction, CutoverError> {
+    ) -> Result<CutoverTransaction<'static>, CutoverError> {
+        self.prepare_cross_revision_cutover_with_sources(
+            target_revision,
+            target_source,
+            descriptor,
+            lfsd_bytes,
+            limits,
+            transaction_limits,
+            None,
+        )
+    }
+
+    /// 准备跨修订切换。含已登记交接窗口的基线或增量须提供两端 LFRE 与 LFSM/LFCA 对应证据。
+    /// 证据与事务一起借用，覆盖准备后新登记、随后又移除的窗口。
+    ///
+    /// # Errors
+    ///
+    /// 沿用普通跨修订准备的错误。窗口缺少来源证明或无法在目标修订重绑定时返回路线重验证错误。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic。
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_cross_revision_cutover_with_sources<'e>(
+        &mut self,
+        target_revision: Arc<SharedNetworkRevision>,
+        target_source: CommittedNetworkSource,
+        descriptor: &NetworkRevisionCutoverDescriptor,
+        lfsd_bytes: &[u8],
+        limits: &CutoverPreflightLimits,
+        transaction_limits: &CutoverTransactionLimits,
+        handoff_sources: Option<(
+            &'e laneflow_static_network::vehicle::HandoffSourceEvidence<'e>,
+            &'e laneflow_static_network::vehicle::HandoffSourceEvidence<'e>,
+        )>,
+    ) -> Result<CutoverTransaction<'e>, CutoverError> {
         self.execution.assert_usable();
         if self.state.admin.migration_journal.is_some() {
             return Err(CutoverError::InFlightTransaction);
@@ -235,7 +270,7 @@ impl TrafficWorld {
             .map_err(|_| CutoverError::StagingAllocFailed)?;
         let armed_epoch = self.state.admin.migration_epoch;
         // 基准捕获（结构克隆）+ 直移构造候选；失败即解除武装。
-        let rebinding = match CrossRevisionRebinding::build(
+        let mut rebinding = match CrossRevisionRebinding::build(
             self.state.binding.revision.identity(),
             target_revision.identity(),
         ) {
@@ -245,6 +280,7 @@ impl TrafficWorld {
                 return Err(error);
             }
         };
+        rebinding.handoff_sources = handoff_sources;
         let (candidate, conflict_finalization) = match migrate_structural_clone_with_conflict_plan(
             &self.state,
             Arc::clone(&target_revision),
@@ -289,7 +325,7 @@ impl TrafficWorld {
     }
 }
 
-impl CutoverTransaction {
+impl CutoverTransaction<'_> {
     /// 候选当前已追到的 tick（滞后观测）。仅对在途事务有意义。
     ///
     /// # Panics
@@ -345,19 +381,25 @@ impl CutoverTransaction {
 
     /// 检查粘性溢出与追赶滞后；超限即整体放弃。
     fn check_health(&mut self, world: &mut TrafficWorld) -> Result<(), CutoverError> {
+        if !world.state.committed.handoffs.is_empty() {
+            self.settle_failure(world);
+            return Err(CutoverError::ActiveHandoff);
+        }
         let Some(journal) = world.state.migration_journal() else {
             self.settle_failure(world);
             return Err(CutoverError::JournalMissing);
         };
+        if journal.active_handoff() {
+            self.settle_failure(world);
+            return Err(CutoverError::ActiveHandoff);
+        }
         if journal.overflowed() {
             self.settle_failure(world);
             return Err(CutoverError::JournalOverflow);
         }
-        // 过渡态粘性拒绝（#1217 D4）：日志域无法忠实编码的增量已终止日志；
-        // 事务整体放弃、旧世界照常可运行，不得按溢出或不变量破坏处置。
-        if let Some(kind) = journal.unsupported_transition_state() {
+        if let Some(vehicle) = journal.invalid_vehicle() {
             self.settle_failure(world);
-            return Err(CutoverError::UnsupportedTransitionState(kind));
+            return Err(CutoverError::VehicleRevalidationFailed { vehicle });
         }
         let lag = world.tick_index().saturating_sub(
             self.candidate
@@ -1253,7 +1295,7 @@ fn apply_conflict_tick_deltas(
         .remove_authority_for_replay(delta.owner)
         .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
         let Some(acquired_tick) = delta.acquired_tick else {
-            if !mapped.is_empty() {
+            if !mapped.is_empty() || delta.downstream_end.is_some() {
                 return Err(CutoverError::ConflictRevalidationFailed);
             }
             continue;
@@ -1293,8 +1335,28 @@ fn apply_conflict_tick_deltas(
             u32::try_from(mapped.len()).map_err(|_| CutoverError::ConflictRevalidationFailed)?,
         )
         .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        let entry = candidate
+            .compiled_route(state.route)
+            .and_then(|route| route.maneuvers.get(first.maneuver_index as usize))
+            .ok_or(CutoverError::ConflictRevalidationFailed)?
+            .entry_route_edge_index;
+        let target = delta
+            .downstream_end
+            .and_then(|end| end.point(entry))
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        if !rebinding.conflict_path_rebinds(
+            base_revision,
+            &candidate.binding.revision,
+            candidate
+                .compiled_route(state.route)
+                .ok_or(CutoverError::ConflictRevalidationFailed)?,
+            range,
+            target,
+        ) {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
         let plan = candidate
-            .reservation_downstream_claim_plan(range, state.length_mm)
+            .reservation_downstream_claim_plan_to(range, state.length_mm, target)
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
         let mut downstream = Vec::new();
         downstream
@@ -1340,10 +1402,7 @@ fn apply_conflict_tick_deltas(
         let target_stream = rebinding
             .participant_stream(delta.address.stream())
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        let source_zone = delta
-            .address
-            .static_zone()
-            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        let source_zone = delta.address.zone();
         let target_zone = rebinding
             .conflict_zone(source_zone)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
@@ -1469,6 +1528,7 @@ fn apply_record(
             slot,
             generation,
             edges,
+            windows,
             ..
         } => {
             let mut target_edges = Vec::new();
@@ -1483,7 +1543,44 @@ fn apply_record(
                         .ok_or(CutoverError::UnmappableLaneEdge { base_edge: raw })?,
                 );
             }
-            let compiled = compile_candidate_route(candidate, target_edges.as_slice())?;
+            let mut bindings = Vec::new();
+            let stream = crate::admin::migration_journal::handoff_window_stream(
+                windows,
+                base_revision.network_revision(),
+            );
+            if stream.len() > target_edges.len().saturating_sub(1) {
+                return Err(CutoverError::RouteRevalidationFailed);
+            }
+            bindings
+                .try_reserve_exact(stream.len())
+                .map_err(|_| CutoverError::StagingAllocFailed)?;
+            let (edge_rows, _) = edges.as_chunks::<4>();
+            for w in stream {
+                let index = w.source_index as usize;
+                let pair = edge_rows
+                    .get(index..)
+                    .and_then(|v| v.first_chunk::<2>())
+                    .ok_or(CutoverError::RouteRevalidationFailed)?;
+                let boundary = base_revision
+                    .bind_handoff_window(
+                        w.revision,
+                        laneflow_static_network::vehicle::HandoffWindow {
+                            edges: pair.map(|b| LaneEdgeOrdinal::from_raw(u32::from_le_bytes(b))),
+                            owner: w.owner,
+                            left_index: w.left_index,
+                            stations_mm: w.stations_mm,
+                        },
+                    )
+                    .map_err(|_| CutoverError::RouteRevalidationFailed)?;
+                bindings.push((w.source_index, boundary));
+            }
+            let compiled = compile_candidate_route(
+                base_revision,
+                candidate,
+                rebinding,
+                &target_edges,
+                &bindings,
+            )?;
             let slot_index =
                 usize::try_from(*slot).map_err(|_| CutoverError::ReplayInconsistent)?;
             // 计数加法在容量约束（u64 容量、注册路径先比容量）下结构性
@@ -1757,9 +1854,17 @@ fn apply_record(
             if current.handle != handle {
                 return Err(CutoverError::ReplayInconsistent);
             }
-            if vehicle.traversal_phase == 4 && next_state.route != current.route {
-                return Err(CutoverError::ConflictRevalidationFailed);
-            }
+            let rebound = if vehicle.traversal_phase == 4 && next_state.route != current.route {
+                candidate
+                    .rebound_conflict_reservation(
+                        current,
+                        next_state.route,
+                        next_state.route_edge_index,
+                    )
+                    .map_err(|_| CutoverError::ConflictRevalidationFailed)?
+            } else {
+                None
+            };
             let next_binding = rebind_parking_delta(candidate, rebinding, handle, *parking)?;
             let current_binding = candidate.committed.parking.binding(handle);
             let next_route_ref = (current.route != next_state.route)
@@ -1779,6 +1884,9 @@ fn apply_record(
                 commit_candidate_route_ref(candidate, next_state.route, next_route_ref);
             }
             candidate.committed.vehicles.slot_mut(slot_index).state = Some(next_state);
+            if let Some(reservation) = rebound {
+                candidate.install_rebound_conflict(reservation);
+            }
             candidate.rebuild_active_order();
             revalidate_vehicle_on(candidate, handle)?;
             if overlap_was_current {
@@ -1924,30 +2032,36 @@ fn apply_record(
 }
 
 fn compile_candidate_route(
+    base_revision: &SharedNetworkRevision,
     candidate: &crate::kernel::state::WorldState,
+    rebinding: &CrossRevisionRebinding,
     edges: &[LaneEdgeOrdinal],
+    windows: &[(u32, laneflow_static_network::vehicle::HandoffBinding)],
 ) -> Result<crate::kernel::tables::CompiledRoute, CutoverError> {
-    crate::kernel::tables::compile_route(
-        candidate.binding.revision.as_ref(),
-        edges,
-        candidate.committed.live_route_conflict_occurrence_count,
-        candidate
-            .binding
-            .config
-            .route_conflict_occurrence_capacity(),
-    )
-    .map_err(|error| match error {
-        crate::RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
-        crate::RouteError::ConflictOccurrenceCapacityExceeded {
-            current,
-            added,
-            capacity,
-        } => CutoverError::ConflictOccurrenceCapacityExceeded {
-            total: current.saturating_add(added),
-            capacity,
-        },
-        _ => CutoverError::RouteRevalidationFailed,
-    })
+    rebinding
+        .compile_route_with_windows(
+            base_revision,
+            candidate.binding.revision.as_ref(),
+            edges,
+            windows,
+            candidate.committed.live_route_conflict_occurrence_count,
+            candidate
+                .binding
+                .config
+                .route_conflict_occurrence_capacity(),
+        )
+        .map_err(|error| match error {
+            crate::RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
+            crate::RouteError::ConflictOccurrenceCapacityExceeded {
+                current,
+                added,
+                capacity,
+            } => CutoverError::ConflictOccurrenceCapacityExceeded {
+                total: current.saturating_add(added),
+                capacity,
+            },
+            _ => CutoverError::RouteRevalidationFailed,
+        })
 }
 
 #[cfg(test)]
@@ -2345,7 +2459,7 @@ mod tests {
         target_bytes: &[u8],
         lfsd: &[u8],
         limits: &CutoverTransactionLimits,
-    ) -> CutoverTransaction {
+    ) -> CutoverTransaction<'static> {
         let target_revision = revision(target_bytes);
         let target_origin = *target_revision.canonical_origin();
         let descriptor = descriptor_for(world, target_origin, lfsd);
@@ -2572,7 +2686,8 @@ mod tests {
             vehicle: VehicleDelta::from_state(
                 &source_state,
                 source.state.compiled_route(source_state.route),
-            ),
+            )
+            .unwrap(),
             parking: ParkingBindingDelta::new(None, None),
         };
         apply_record(
@@ -2784,7 +2899,7 @@ mod tests {
         world: &mut TrafficWorld,
         target: Arc<SharedNetworkRevision>,
         lfsd: &[u8],
-    ) -> Result<CutoverTransaction, CutoverError> {
+    ) -> Result<CutoverTransaction<'static>, CutoverError> {
         let origin = *target.canonical_origin();
         let descriptor = descriptor_for(world, origin, lfsd);
         world.prepare_cross_revision_cutover(
@@ -2795,6 +2910,36 @@ mod tests {
             &preflight_limits(),
             &CutoverTransactionLimits::default(),
         )
+    }
+
+    #[test]
+    fn migration_rejects_a_maneuver_traversal_with_a_missing_gate() {
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
+        let (mut world, vehicle) = first_waiting_world(base, 1, 1_000);
+        let before = world.state.vehicle_state(vehicle).unwrap();
+        let invalid = crate::ManeuverTraversalState {
+            route: before.route,
+            maneuver_occurrence_index: 0,
+            phase: crate::ManeuverTraversalPhase::PreGate {
+                next_gate_hop: u32::MAX,
+            },
+        };
+        let mut state = before;
+        state.maneuver_traversal = Some(invalid);
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize)
+            .state = Some(state);
+        assert_eq!(
+            prepare_first_waiting(&mut world, target, &lfsd).err(),
+            Some(CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index()
+            }),
+        );
+        assert!(world.state.migration_journal().is_none());
+        assert_eq!(world.state.vehicle_state(vehicle), Some(state));
     }
 
     #[test]
@@ -2930,7 +3075,7 @@ mod tests {
             .expect("covering maneuver");
         let gate_hop = maneuver.entry_route_edge_index;
         let gate = compiled.hop_gate[gate_hop as usize].expect("admission Gate");
-        let mut delta = VehicleDelta::from_state(&state, Some(compiled));
+        let mut delta = VehicleDelta::from_state(&state, Some(compiled)).unwrap();
         delta.traversal_present = true;
         delta.maneuver_entry_route_edge_index = maneuver.entry_route_edge_index;
         delta.maneuver_path = maneuver.path.raw();

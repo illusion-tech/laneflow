@@ -1,4 +1,4 @@
-//! 声明式汇总输入（`lf-unified-gate-manifest-1`）的数据模型。
+//! 声明式汇总输入（`lf-unified-gate-manifest-2`）的数据模型。
 //!
 //! manifest 由维护者手工维护：两套负载 × 五轴逐格声明结论、来源身份、覆盖边界、
 //! 例外状态与证据锚点。仓库相对路径在 `--repo-root` 下解析；仓库外证据目录用
@@ -8,9 +8,9 @@
 use serde::{Deserialize, Serialize};
 
 /// manifest 自身的格式身份；随结构不兼容变更而升版。
-pub const MANIFEST_FORMAT: &str = "lf-unified-gate-manifest-1";
+pub const MANIFEST_FORMAT: &str = "lf-unified-gate-manifest-2";
 /// 汇总回执的格式身份（ADR 0033 §4：持久结果带域分隔与版本）。
-pub const RECEIPT_FORMAT: &str = "lf-unified-gate-receipt-1";
+pub const RECEIPT_FORMAT: &str = "lf-unified-gate-receipt-2";
 /// 仓库外证据目录占位前缀。
 pub const EVIDENCE_ROOT_PREFIX: &str = "<evidence-root>/";
 
@@ -73,7 +73,7 @@ impl CellStatus {
             CellStatus::WitnessPass => "执行回执通过",
             CellStatus::UncertifiedPerformance => "未认证",
             CellStatus::AuthorizedExemption => "授权豁免",
-            CellStatus::Deferred => "已延后 v0.11",
+            CellStatus::Deferred => "已延后",
             CellStatus::Pending => "未完成",
         }
     }
@@ -132,7 +132,7 @@ pub struct StatementDeclaration {
     pub evidence: Vec<Evidence>,
 }
 
-/// 范围裁定清单的一行（#1268 正文 9 项表的声明式副本）。
+/// 本轮验收的范围裁定与未覆盖项。
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ScopeAdjudication {
@@ -150,7 +150,7 @@ pub struct CapabilityLimit {
     pub evidence: Vec<Evidence>,
 }
 
-/// L1 拓扑核查记录的挂接：每份正式 L1 输入身份一条 `check-transitions` 记录。
+/// 每份正式 L1 输入身份挂接一份真实动态换道运行回执。
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct L1CheckRef {
@@ -243,11 +243,11 @@ pub enum Evidence {
         #[serde(default)]
         expect: Vec<String>,
     },
-    /// `check-transitions` 记录（`lf-l1-topology-check-1`）。
-    L1Record {
+    /// 动态换道执行器回执，须绑定完整输入清单和执行提交。
+    HandoffRun {
         path: String,
-        #[serde(default)]
-        expect: Option<L1RecordExpect>,
+        input_manifest: String,
+        implementation_commit: String,
     },
 }
 
@@ -266,10 +266,4 @@ pub struct GateJsonExpect {
     pub status: Option<String>,
     pub commit: Option<String>,
     pub binary_digest: Option<String>,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
-#[serde(deny_unknown_fields)]
-pub struct L1RecordExpect {
-    pub verdict: Option<String>,
 }

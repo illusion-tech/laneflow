@@ -1,15 +1,24 @@
 //! 单活动 LaneFlow Session：TrafficWorld + 可选 Spatial session。
 
-use std::{collections::HashMap, mem, num::NonZeroU32, sync::Arc, time::Duration};
+mod handoff_pose;
+
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
+    num::NonZeroU32,
+    sync::Arc,
+    time::Duration,
+};
 
 use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
 use laneflow_runtime::{
-    CommittedNetworkSource, CutoverEventBatch, CutoverPreflightLimits, CutoverTransactionLimits,
-    LeaveParkingTarget, LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
-    ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord, ParkingCancelRecord, ParkingCommandOutcome,
-    ParkingError, ParkingLeaveRecord, ParkingParkRecord, ParkingRebindRecord, ParkingReserveRecord,
-    ParkingTarget, RebindParkingTarget, ReserveParkingTarget, RouteError, RouteHandle,
+    CommittedHandoffGeometry, CommittedNetworkSource, CutoverEventBatch, CutoverPreflightLimits,
+    CutoverTransactionLimits, LeaveParkingTarget, LfcaOriginBinding, MigrationPolicyKind,
+    NetworkRevisionCutoverDescriptor, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord,
+    ParkingCancelRecord, ParkingCommandOutcome, ParkingError, ParkingLeaveRecord,
+    ParkingParkRecord, ParkingRebindRecord, ParkingReserveRecord, ParkingTarget,
+    RebindParkingTarget, ReserveParkingTarget, RouteError, RouteHandle, RouteHandoffRequest,
     RouteRegisterInput, SemanticDiffOriginBinding, SpawnError, StepOutcome, TickInput,
     TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldGeneration, WorldId,
 };
@@ -77,11 +86,14 @@ pub struct LaneFlowSession {
     accumulator: Duration,
     frame_report: LaneFlowFrameReport,
     frame_step_results: Vec<StepOutcome>,
+    next_route_handoffs: Vec<RouteHandoffRequest>,
     pub(crate) last_error: Option<LaneFlowAdapterError>,
     vehicle_entities: VehicleEntityMap,
     pose_scratch: Vec<PoseInput>,
     pose_vehicle_scratch: Vec<VehicleHandle>,
     pose_selection_seen: HashMap<VehicleHandle, usize>,
+    pose_handoff_members: HashSet<VehicleHandle>,
+    pose_handoff_scratch: Vec<(PoseRecordId, CommittedHandoffGeometry)>,
 }
 
 impl LaneFlowSession {
@@ -111,12 +123,22 @@ impl LaneFlowSession {
             accumulator: Duration::ZERO,
             frame_report: LaneFlowFrameReport::default(),
             frame_step_results: Vec::new(),
+            next_route_handoffs: Vec::new(),
             last_error: None,
             vehicle_entities,
             pose_scratch: Vec::new(),
             pose_vehicle_scratch: Vec::new(),
             pose_selection_seen: HashMap::new(),
+            pose_handoff_members: HashSet::new(),
+            pose_handoff_scratch: Vec::new(),
         })
+    }
+
+    /// 替换本 Session 下一次固定步进尝试的路线交接申请。宿主通常在
+    /// `LaneFlowFixedSet::Lifecycle` 按拍初已提交状态调用。零步进帧保留申请，
+    /// 成功或失败的步进尝试都会消费它。同修订恢复和跨修订切换成功时清空。
+    pub fn set_next_route_handoffs(&mut self, requests: Vec<RouteHandoffRequest>) {
+        self.next_route_handoffs = requests;
     }
 
     /// 已提交交通世界。
@@ -133,12 +155,6 @@ impl LaneFlowSession {
     #[must_use]
     pub const fn junction_observation(&self) -> LaneFlowJunctionObservation<'_> {
         LaneFlowJunctionObservation::new(&self.world)
-    }
-
-    /// 取回并清空自上次以来的执行证据（#1233 对象 b）。
-    #[cfg(feature = "execution-evidence")]
-    pub fn take_execution_evidence(&mut self) -> laneflow_runtime::ExecutionEvidence {
-        self.world.take_execution_evidence()
     }
 
     /// 两次 `step` 之间提交 route、spawn 与 parking lifecycle 命令。
@@ -189,14 +205,16 @@ impl LaneFlowSession {
     ///
     /// 一次消费来源迭代器，同时构建候选输入与候选车辆序列两组 Session
     /// 缓冲；Spatial 采样成功后的最终提交只剩缓冲交换、接管清空与上下文
-    /// 值更新，不再执行可返回错误的工作。稳定容量复用（adapter-api §6）：
-    /// 调用方持有 `output` 跨帧复用，Session 与参与 output 均暖机后零新增
-    /// 分配；任一失败路径整个 `output`（车辆序列、批次、上下文）原样保持。
+    /// 值更新。普通车道和泊位沿用稳定容量复用（adapter-api §6），调用方持有
+    /// `output` 跨帧复用，Session 与参与 output 均暖机后零新增分配。
+    /// 活动横移额外重建本批对应的车体几何，保存按记录排序的稀疏观测。
+    /// 任一失败路径保持整个 `output`，包括原拍号和横移阶段。
     ///
     /// # Errors
     ///
     /// 当前没有配对 Spatial（[`LaneFlowAdapterError::PoseExtractionWithoutSpatial`]）、
-    /// Spatial 与世界活动根对象 `Arc::ptr_eq` 失配（[`LaneFlowAdapterError::RevisionMismatch`]）
+    /// Spatial 与世界活动根对象 `Arc::ptr_eq` 失配（[`LaneFlowAdapterError::RevisionMismatch`]）、
+    /// 读取已提交横移姿态失败（[`LaneFlowAdapterError::HandoffPose`]），
     /// 或 Spatial 批次提取失败（[`LaneFlowAdapterError::SpatialPoseExtraction`]）时返回；
     /// 失败不产生部分批次。
     pub fn extract_committed_pose_batch(
@@ -231,6 +249,7 @@ impl LaneFlowSession {
                 .push(PoseInput::from_source(PoseRecordId::new(record), source));
             self.pose_vehicle_scratch.push(vehicle);
         }
+        self.collect_handoff_poses(false)?;
         #[cfg(feature = "pose-profiling")]
         profile_pose_sources("full", validation_ns, query_started.elapsed().as_nanos());
         self.sample_and_commit_pose_batch(context, placement_token, output)
@@ -239,16 +258,18 @@ impl LaneFlowSession {
     /// 按调用方给出的有序代际句柄提取当前已提交位姿。
     ///
     /// 输出为输入省略有效但不可表现项后的顺序；记录序号从零连续编号。
-    /// 空选择仍检查上下文与根配对，并提交带当前修订和新 token 的空批。
+    /// 空选择仍检查上下文与根配对，并提交带当前修订、提交拍和新 token 的空批。
+    /// 仅重建已选车辆的横移车体，未选车不会触发横移几何求值。
     /// 上下文不冻结普通步进或生命周期命令之前的状态。选择进出不等于 despawn。
     ///
     /// # Errors
     ///
     /// 依次检查上下文（[`LaneFlowAdapterError::StalePoseSelectionContext`]）、
     /// Spatial 存在、根配对、完整列表重复（[`LaneFlowAdapterError::DuplicatePoseSelection`]）、
-    /// 顺序来源查询（[`LaneFlowAdapterError::SelectedPoseSource`]）和 Spatial 采样。
+    /// 顺序来源查询（[`LaneFlowAdapterError::SelectedPoseSource`]），已选车辆的横移几何
+    /// （[`LaneFlowAdapterError::HandoffPose`]）和 Spatial 采样。
     /// 重复优先于任一来源错误；每阶段按输入顺序返回首错。
-    /// 任一错误保持整个旧输出不变，包括车辆、记录、修订、frame、token 与上下文。
+    /// 任一错误保持整个旧输出不变，包括车辆、记录、横移阶段、提交拍、修订、frame、token 与上下文。
     pub fn extract_selected_committed_pose_batch(
         &mut self,
         context: LaneFlowConsumptionContext,
@@ -305,6 +326,7 @@ impl LaneFlowSession {
                 self.pose_vehicle_scratch.push(vehicle);
             }
         }
+        self.collect_handoff_poses(true)?;
         #[cfg(feature = "pose-profiling")]
         profile_pose_sources(
             "selected",
@@ -320,17 +342,34 @@ impl LaneFlowSession {
         placement_token: laneflow_spatial::FramePlacementToken,
         output: &mut LaneFlowCommittedPoseBatch,
     ) -> Result<(), LaneFlowAdapterError> {
-        self.spatial
+        let spatial = self
+            .spatial
             .as_mut()
-            .expect("paired spatial checked before collecting sources")
-            .extract_pose_batch(placement_token, &self.pose_scratch, &mut output.batch)
-            .map_err(|source| LaneFlowAdapterError::SpatialPoseExtraction { source })?;
+            .expect("paired spatial checked before collecting sources");
+        let sampled = if self.pose_handoff_scratch.is_empty() {
+            spatial.extract_pose_batch(placement_token, &self.pose_scratch, &mut output.batch)
+        } else {
+            let handoffs = self
+                .pose_handoff_scratch
+                .iter()
+                .map(handoff_pose::spatial_input);
+            spatial.extract_pose_batch_with_handoffs(
+                placement_token,
+                &self.pose_scratch,
+                handoffs,
+                &mut output.batch,
+            )
+        };
+        sampled.map_err(|source| LaneFlowAdapterError::SpatialPoseExtraction { source })?;
         // 全部可失败工作已完成；提交阶段只做所有权交换与值更新。
         #[cfg(feature = "pose-profiling")]
         let commit_started = std::time::Instant::now();
         mem::swap(&mut self.pose_vehicle_scratch, &mut output.vehicles);
         // 接管上一批输出的车辆存储，保留容量供下一批候选复用。
         self.pose_vehicle_scratch.clear();
+        mem::swap(&mut self.pose_handoff_scratch, &mut output.handoffs);
+        self.pose_handoff_scratch.clear();
+        output.tick = self.world.tick_index();
         output.context = context;
         #[cfg(feature = "pose-profiling")]
         {
@@ -470,6 +509,7 @@ impl LaneFlowSession {
         target: Option<SpatialSession>,
         events: CutoverEventBatch,
     ) -> LaneFlowCutoverRecord {
+        self.next_route_handoffs.clear();
         LaneFlowCutoverRecord {
             retired_spatial: mem::replace(&mut self.spatial, target),
             world_binding: self.world.world_binding(),
@@ -611,7 +651,17 @@ impl LaneFlowSession {
             return;
         }
         let delta = self.world.config().fixed_delta_time_ms();
-        match self.world.step(TickInput::new(delta)) {
+        let input = TickInput::new(delta);
+        let result = if self.next_route_handoffs.is_empty() {
+            self.world.step(input)
+        } else {
+            let result = self
+                .world
+                .step_with_route_handoffs(input, &self.next_route_handoffs);
+            self.next_route_handoffs.clear();
+            result
+        };
+        match result {
             Ok(result) => {
                 self.accumulator = self
                     .accumulator
@@ -847,6 +897,8 @@ pub struct LaneFlowCommittedPoseBatch {
     batch: CanonicalPoseBatch,
     context: LaneFlowConsumptionContext,
     vehicles: Vec<VehicleHandle>,
+    tick: u64,
+    handoffs: Vec<(PoseRecordId, CommittedHandoffGeometry)>,
 }
 
 impl Default for LaneFlowCommittedPoseBatch {
@@ -858,6 +910,8 @@ impl Default for LaneFlowCommittedPoseBatch {
                 world_generation: WorldGeneration::INITIAL,
             },
             vehicles: Vec::new(),
+            tick: 0,
+            handoffs: Vec::new(),
         }
     }
 }
@@ -886,6 +940,16 @@ impl LaneFlowCommittedPoseBatch {
     #[must_use]
     pub fn vehicles(&self) -> &[VehicleHandle] {
         &self.vehicles
+    }
+
+    /// 此批记录所处的世界提交拍。
+    pub const fn tick(&self) -> u64 {
+        self.tick
+    }
+
+    /// 横移车辆的记录序号与同拍车体、路线出现及前杠交接阶段。按批次顺序稀疏排列。
+    pub fn handoffs(&self) -> &[(PoseRecordId, CommittedHandoffGeometry)] {
+        &self.handoffs
     }
 }
 

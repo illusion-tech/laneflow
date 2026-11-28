@@ -1598,13 +1598,10 @@ impl WorldExecution {
 
     /// 取走自上次以来的调度证据。
     #[cfg(feature = "execution-evidence")]
-    pub(crate) fn take_evidence(
-        &mut self,
-        transition: &super::transition_cost::Recorder,
-    ) -> crate::ExecutionEvidence {
-        self.evidence.as_mut().map_or_else(
-            || super::execution_evidence::Ledger::default().take(transition),
-            |ledger| ledger.take(transition),
+    pub(crate) fn take_evidence(&mut self) -> crate::ExecutionEvidence {
+        self.evidence.as_deref_mut().map_or_else(
+            || super::execution_evidence::Ledger::default().take(),
+            super::execution_evidence::Ledger::take,
         )
     }
 

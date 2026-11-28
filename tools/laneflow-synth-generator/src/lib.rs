@@ -2,15 +2,18 @@
 
 mod bundle;
 mod encoding;
+pub mod handoff;
 mod network;
 mod network_lane_change;
 mod plan;
+#[cfg(any(feature = "runtime", test))]
+pub mod runtime;
 mod state;
 
 use serde::{Deserialize, Serialize};
 
 pub use bundle::{Bundle, FileRecord, Manifest, Provenance, generate, verify_directory};
-pub use state::{InitialState, RouteRecord, VehicleRecord};
+pub use state::{HandoffDrivingInput, HandoffInput, InitialState, RouteRecord, VehicleRecord};
 
 /// LF-SYNTH 场景中刚性双轴乘用车的显式作者参数。
 pub const PASSENGER_CAR_GEOMETRY: laneflow_compiler::RoadVehicleGeometryInput =
@@ -41,8 +44,8 @@ pub enum Case {
     W2,
     W3,
     W4,
-    /// 换道族：`clusters` 个横向过渡段簇 × 每簇 `changers_per_cluster` 名换道者；
-    /// 过渡密度 = 过渡出现项 / 边数，候选密度 = 候选数 / 过渡出现项。
+    /// 两辆车从外侧车道同拍争用中间车道。
+    #[serde(rename = "RouteHandoff")]
     LaneChange(LaneChangeParams),
 }
 
@@ -67,16 +70,12 @@ pub struct LaneChangeParams {
 }
 
 impl LaneChangeParams {
-    /// 参数校验：至少一簇、每簇至少两名竞争者，且总量有界。
+    /// 每簇恰有两名竞争者，簇数为 1 至 64。
     ///
     /// # Errors
     /// 越界时返回错误。
     pub fn validate(&self) -> Result<(), Error> {
-        // 每簇换道者串行通过 T：观察窗必须早于 leader 完成路线，而末车必须
-        // 在窗内完成 crossing。当前下游几何（约 72 m）与加速曲线下，只有
-        // K=2（R1b s12 钉版）同时满足；K≠2 需同步扩展下游几何与窗口模型
-        // （#1233 F1：K=3 的末车 crossing 仅比 leader 完成晚数拍，无可行的
-        // 观察窗口）。簇数上界防止输入规模失控。
+        // 每簇的两个源车道分别注册一条指向中间车道的路线。
         if self.changers_per_cluster != 2 || self.clusters == 0 || self.clusters > 64 {
             return Err(Error::Invalid("换道族参数越界".into()));
         }
@@ -84,20 +83,9 @@ impl LaneChangeParams {
     }
 }
 
-/// 换道者入口边（`lc-e0`）长度（毫米，#1233 对象 b/F1）。
-///
-/// 可行域内（K=2）保持 30 m 钉版几何。
-pub(crate) fn lane_change_entry_length_mm(_changers_per_cluster: u32) -> u64 {
-    30_000
-}
-
-/// 换道者在入口边上的确定性前保险杠位置（毫米，#1233 对象 b/F1）。
-///
-/// R1b s12 钉版：leader 11,000 / follower 3,000（净间隙 3,500 > min_gap，
-/// 满足 spawn 安全与无重叠）。
-pub(crate) fn lane_change_slot_progress_mm(_changers_per_cluster: u32, slot: u32) -> u32 {
-    if slot == 0 { 11_000 } else { 3_000 }
-}
+// 三条无坡直车道上，两车的初始前杠纵向对齐，分别按所在源车道的限速行驶。
+const HANDOFF_FRONT_MM: u32 = 13_750;
+const HANDOFF_SPEED_MM_S: [u32; 2] = [3_000, 1_500];
 
 /// 交通输入身份；表现比例不参与本身份。
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -172,11 +160,7 @@ impl Identity {
         4 * self.cycle_ms() / self.fixed_delta_ms
     }
 
-    /// L1 换道族自有窗口（#1218 D3：出生位钉版，恢复检查点钉在首 crossing 前）。
-    ///
-    /// 预热 16 拍（F3 检查点 0/1 = 16/32 拍，早于首 crossing）；观察窗按步长钉版
-    ///（探针 `lane_change_lifecycle_probe_freezes_window_pinning` 冻结拍号）：
-    /// 终点晚于败者清空后进入拍、早于任一换道者路线完成拍。
+    /// 预热末拍保留首车的活动横移，两车清空后仍至少有一拍供恢复重放。
     pub fn lane_change_window(&self) -> (u64, u64) {
         lane_change_pinned_window(self.fixed_delta_ms)
     }
@@ -186,12 +170,10 @@ impl Identity {
 /// 派生期望窗口，不自持第二套字面量（曾因 #1272 收束边界放宽后未同步而
 /// 静默拒绝规范报告）。
 ///
-/// K=2 钉版窗口（调度可行域推导见 LaneChangeParams::validate）。
-/// #1272：换道生命周期含提前制动（停让方在制动前视窗内减速），
-/// 观察窗按钉版实测收束边界放宽（16 ms 档 304→384、33 ms 档 144→184）。
+/// 两种固定步长均覆盖两车的进入、前杠交接和车尾清空。
 #[must_use]
 pub fn lane_change_pinned_window(fixed_delta_ms: u32) -> (u64, u64) {
-    let observation = if fixed_delta_ms == 16 { 384_u64 } else { 184 };
+    let observation = if fixed_delta_ms == 16 { 2_064_u64 } else { 992 };
     (16, observation)
 }
 

@@ -54,7 +54,7 @@ use laneflow_spatial::CanonicalFrameId;
 ## 主要约束与限制
 
 - 修订没有 Spatial component 时，`bind` 返回 `Ok(None)`。有 Spatial 但缺少 lane pose 时，返回 `MissingLanePose`。
-- 几何使用有界的 canonical `f32`。交通进度和距离仍以整数毫米为准。
+- 中心线与位姿使用有界局部坐标的 `f32`。可分辨的坐标间距取决于坐标量级，宿主放置也影响最终精度。道路站位、车道进度和安全边界按运行时毫米合同裁决。
 - `PoseSource::Parking` 只接受显式车位序号。虚拟停泊没有位姿输入；没有位姿也不表示车辆已移除。
 - 提供给 Bevy 时，session 必须和世界指向同一根 `Arc`。
 

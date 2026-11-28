@@ -18,7 +18,8 @@ pub use primitives::{
     CanonicalUnitVector3F32, CanonicalVector3F32, FramePlacementToken, PoseRecordId,
 };
 pub use session::{
-    CanonicalPoseBatch, CanonicalPoseRecord, PoseInput, SpatialBindError, SpatialSession,
+    CanonicalPoseBatch, CanonicalPoseRecord, HandoffPoseInput, PoseInput, SpatialBindError,
+    SpatialSession,
 };
 
 #[cfg(test)]

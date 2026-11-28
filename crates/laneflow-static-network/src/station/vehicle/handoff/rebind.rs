@@ -41,7 +41,7 @@ fn project_window(
         .relations()
         .lane_edge_authoring_lane(edge)
         .ok_or(Failure::Binding)?;
-    match network.station_mapping().in_station_range(
+    match network.station_mapping().in_station_range_nm(
         binding.corridor(),
         binding.common_stations_nm(),
         lane,
@@ -94,7 +94,7 @@ fn target_window(
         edges,
         owner,
         left_index,
-        stations_nm: previous.stations_nm,
+        stations_mm: previous.stations_mm,
     })
 }
 
@@ -109,8 +109,8 @@ fn boundary_rows(network: &SharedNetworkRevision, window: HandoffWindow) -> &[Bo
 fn surfaces(network: &SharedNetworkRevision, binding: HandoffBinding) -> &[RoadSurfaceSpan] {
     let rows = network.station_mapping().surface_spans(binding.corridor());
     let [lo, hi] = binding.common_stations_nm();
-    let first = rows.partition_point(|r| r.stations[1].0 < lo);
-    let end = rows.partition_point(|r| r.stations[0].0 <= hi);
+    let first = rows.partition_point(|r| r.stations_nm()[1].0 < lo);
+    let end = rows.partition_point(|r| r.stations_nm()[0].0 <= hi);
     &rows[first..end]
 }
 
@@ -126,8 +126,8 @@ fn window_open(
     if rows.iter().any(|r| match r.payload {
         Some(BoundaryPayload::Guardrail { .. }) => true,
         Some(BoundaryPayload::Curb { .. }) => {
-            r.stations_nm[0].saturating_sub(u64::from(r.errors_nm[0])) <= hi
-                && r.stations_nm[1].saturating_add(u64::from(r.errors_nm[1])) >= lo
+            r.stations_nm()[0].saturating_sub(r.errors_nm()[0]) <= hi
+                && r.stations_nm()[1].saturating_add(r.errors_nm()[1]) >= lo
         }
         None => true,
         _ => false,
@@ -144,7 +144,7 @@ impl SharedNetworkRevision {
     ///
     /// # Errors
     ///
-    /// 任一侧缺少精确来源、相关文档变更、成员或两边实际拥有的站位闭区间改变时拒绝。
+    /// 任一侧缺少精确来源、相关文档变更、成员或两边实际拥有的站位域（含端点归属）改变时拒绝。
     pub fn rebind_handoff_window(
         &self,
         base: &SharedNetworkRevision,
@@ -157,9 +157,9 @@ impl SharedNetworkRevision {
         }
         let new =
             self.bind_handoff_window(self.network_revision(), target_window(base, self, old)?)?;
-        if old.window().stations_nm != new.window().stations_nm
+        if old.window().stations_mm != new.window().stations_mm
             || old.increasing() != new.increasing()
-            || old.common_stations_nm() != new.common_stations_nm()
+            || old.common_stations_mm() != new.common_stations_mm()
             || base.station_mapping().corridor_domain(old.corridor())
                 != self.station_mapping().corridor_domain(new.corridor())
         {
@@ -189,7 +189,7 @@ impl SharedNetworkRevision {
         if previous_rows.is_empty()
             || previous_rows.len() != next_rows.len()
             || !previous_rows.iter().zip(next_rows).all(|(a, b)| {
-                a.stations == b.stations
+                a.stations_mm == b.stations_mm
                     && a.jets == b.jets
                     && a.derivative_errors == b.derivative_errors
             })
@@ -218,8 +218,8 @@ impl SharedNetworkRevision {
                 .station_mapping()
                 .lane_footprint(b)
                 .ok_or(Failure::Unavailable)?;
-            if x.ends_um != y.ends_um
-                || x.error_nm != y.error_nm
+            if x.ends_mm != y.ends_mm
+                || x.error_mm != y.error_mm
                 || !x.supports_wheel
                 || !y.supports_wheel
             {

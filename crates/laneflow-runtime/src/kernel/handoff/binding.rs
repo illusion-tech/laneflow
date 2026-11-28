@@ -49,42 +49,10 @@ impl TrafficWorld {
         let revision = &self.state.binding.revision;
         let edges = route.edges();
         self.state.preflight_route_registration(edges.len())?;
-        if occurrences.len() > edges.len() - 1 {
-            return Err(RouteHandoffTrialError::OccurrenceOutOfRange);
-        }
-        if occurrences.is_empty()
-            || occurrences
-                .windows(2)
-                .any(|w| w[0].source_index >= w[1].source_index)
-        {
+        if !route.handoffs().is_empty() && route.handoffs() != occurrences {
             return Err(RouteHandoffTrialError::InvalidWindowOrder);
         }
-        // 源下标严格递增。最后一项有后继即证明所有下标可表示且窗口数至多为 E−1。
-        let edge_count =
-            u32::try_from(edges.len()).map_err(|_| RouteHandoffTrialError::OccurrenceOutOfRange)?;
-        let last = occurrences[occurrences.len() - 1].source_index;
-        if last >= edge_count - 1 {
-            return Err(RouteHandoffTrialError::OccurrenceOutOfRange);
-        }
-        let mut windows = try_route_vec(occurrences.len())?;
-        for occurrence in occurrences {
-            if occurrence.revision != revision.network_revision() {
-                return Err(RouteHandoffTrialError::RevisionMismatch);
-            }
-            let i = occurrence.source_index as usize;
-            let boundary = revision
-                .bind_handoff_window(
-                    occurrence.revision,
-                    HandoffWindow {
-                        edges: [edges[i], edges[i + 1]],
-                        owner: occurrence.owner,
-                        left_index: occurrence.left_index,
-                        stations_nm: occurrence.stations_nm,
-                    },
-                )
-                .map_err(RouteHandoffTrialError::Boundary)?;
-            windows.push((occurrence.source_index, boundary));
-        }
+        let windows = bind_windows(revision, edges, occurrences)?;
         let mut owned_edges = try_route_vec(edges.len())?;
         owned_edges.extend_from_slice(edges);
         self.compile_handoffs(owned_edges, windows)
@@ -139,29 +107,10 @@ impl TrafficWorld {
         windows: Vec<(u32, HandoffBinding)>,
     ) -> Result<BoundRouteHandoff, RouteHandoffTrialError> {
         let revision = &self.state.binding.revision;
-        for &(index, boundary) in &windows {
-            let i = index as usize;
-            let [source, target] = boundary.window().edges;
-            if [edges[i], edges[i + 1]] != [source, target] {
-                return Err(RouteHandoffTrialError::Boundary(Failure::Binding));
-            }
-            if revision
-                .traffic()
-                .maneuvers()
-                .transition_candidates(source)
-                .is_some_and(|candidates| candidates.iter().any(|hop| hop.successor() == target))
-            {
-                return Err(RouteError::ManeuverMismatch.into());
-            }
-        }
-        let ends = windows
-            .iter()
-            .map(|w| w.0 as usize + 1)
-            .chain([edges.len()]);
-        let maneuvers = compile_ordinary_legs(
+        let maneuvers = ordinary_handoff_maneuvers(
             revision,
             &edges,
-            ends,
+            &windows,
             self.state.committed.live_route_conflict_occurrence_count,
             self.state
                 .binding
@@ -175,6 +124,79 @@ impl TrafficWorld {
             windows,
         })
     }
+}
+
+pub(crate) fn bind_windows(
+    revision: &SharedNetworkRevision,
+    edges: &[LaneEdgeOrdinal],
+    occurrences: &[RouteHandoffOccurrence],
+) -> Result<Vec<(u32, HandoffBinding)>, RouteHandoffTrialError> {
+    if occurrences.len() > edges.len().saturating_sub(1) {
+        return Err(RouteHandoffTrialError::OccurrenceOutOfRange);
+    }
+    if occurrences.is_empty()
+        || occurrences
+            .windows(2)
+            .any(|w| w[0].source_index >= w[1].source_index)
+    {
+        return Err(RouteHandoffTrialError::InvalidWindowOrder);
+    }
+    // 源下标严格递增。最后一项有后继即证明所有下标可表示且窗口数至多为 E−1。
+    let edge_count =
+        u32::try_from(edges.len()).map_err(|_| RouteHandoffTrialError::OccurrenceOutOfRange)?;
+    let last = occurrences[occurrences.len() - 1].source_index;
+    if last >= edge_count - 1 {
+        return Err(RouteHandoffTrialError::OccurrenceOutOfRange);
+    }
+    let mut windows = try_route_vec(occurrences.len())?;
+    for occurrence in occurrences {
+        if occurrence.revision != revision.network_revision() {
+            return Err(RouteHandoffTrialError::RevisionMismatch);
+        }
+        let i = occurrence.source_index as usize;
+        let boundary = revision
+            .bind_handoff_window(
+                occurrence.revision,
+                HandoffWindow {
+                    edges: [edges[i], edges[i + 1]],
+                    owner: occurrence.owner,
+                    left_index: occurrence.left_index,
+                    stations_mm: occurrence.stations_mm,
+                },
+            )
+            .map_err(RouteHandoffTrialError::Boundary)?;
+        windows.push((occurrence.source_index, boundary));
+    }
+    Ok(windows)
+}
+
+pub(super) fn ordinary_handoff_maneuvers(
+    revision: &SharedNetworkRevision,
+    edges: &[LaneEdgeOrdinal],
+    windows: &[(u32, HandoffBinding)],
+    live_conflicts: u64,
+    capacity: u64,
+) -> Result<Vec<ManeuverOccurrence>, RouteHandoffTrialError> {
+    for &(index, boundary) in windows {
+        let i = index as usize;
+        let [source, target] = boundary.window().edges;
+        if [edges[i], edges[i + 1]] != [source, target] {
+            return Err(RouteHandoffTrialError::Boundary(Failure::Binding));
+        }
+        if revision
+            .traffic()
+            .maneuvers()
+            .transition_candidates(source)
+            .is_some_and(|candidates| candidates.iter().any(|hop| hop.successor() == target))
+        {
+            return Err(RouteError::ManeuverMismatch.into());
+        }
+    }
+    let ends = windows
+        .iter()
+        .map(|w| w.0 as usize + 1)
+        .chain([edges.len()]);
+    compile_ordinary_legs(revision, edges, ends, live_conflicts, capacity).map_err(Into::into)
 }
 
 /// 段尾为已校验的独占下标，最后一段结束于路线末端。每个普通段按注册规则

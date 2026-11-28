@@ -35,23 +35,23 @@ fn external_trial_checks_current_bodies_on_both_physical_lanes_until_the_tail_cl
         source_index: 2,
         owner: BoundaryOwner::Section(section),
         left_index: 0,
-        stations_nm: [24_000_000_000, 26_000_000_000],
+        stations_mm: [24_000, 26_000],
     };
     let binding = world.bind_route_handoff(&route, occurrence).unwrap();
     let profile = conflict_profile(&revision, "car");
     let trial = RouteHandoffTrial {
         profile: revision.identity().stable_id(profile).unwrap(),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm: [10_000_000_000, 40_000_000_000],
+        station_window_mm: [0, 50_000],
+        rear_stations_mm: [10_000, 40_000],
         speed_m_s: 1.,
         limits: GeometryWorkLimits::STANDARD,
     };
     let traffic = |world: &mut TrafficWorld, rear, step| {
         world
-            .preview_route_handoff_traffic(&binding, 2, &trial, rear, step, 5_000_000)
+            .preview_route_handoff_traffic(&binding, 2, &trial, rear, step, TRAVEL_TOLERANCE_MM)
             .unwrap()
     };
-    let clear = traffic(&mut world, 12_000_000, 3_000_000);
+    let clear = traffic(&mut world, 12_000, 3_000);
     assert_eq!(clear.side_blockers, [None; 2]);
     assert_eq!(clear.sample.footprint.front_side, HandoffLaneSide::Target);
     let source = clear.sample.footprint.sides[0].as_ref().unwrap();
@@ -86,7 +86,7 @@ fn external_trial_checks_current_bodies_on_both_physical_lanes_until_the_tail_cl
         )
     };
     let before = state(&world);
-    let both = traffic(&mut world, 12_000_000, 3_000_000);
+    let both = traffic(&mut world, 12_000, 3_000);
     assert_eq!(both.sample, clear.sample);
     assert_eq!(both.side_blockers, [Some(source), Some(target)]);
     assert_eq!(both.blockers().collect::<Vec<_>>(), [source, target]);
@@ -96,10 +96,10 @@ fn external_trial_checks_current_bodies_on_both_physical_lanes_until_the_tail_cl
     };
     assert_eq!(same_vehicle.blockers().collect::<Vec<_>>(), [target]);
     assert!(both.checked_edges.into_iter().all(|n| (1..=8).contains(&n)));
-    assert_eq!(traffic(&mut world, 15_000_000, 0), both);
+    assert_eq!(traffic(&mut world, 15_000, 0), both);
 
     // 车尾已清空后，即使源车还在，源侧也无需查桶。
-    let late = traffic(&mut world, 20_000_000, 3_000_000);
+    let late = traffic(&mut world, 20_000, 3_000);
     assert!(late.sample.footprint.sides[0].is_none());
     assert_eq!((late.side_blockers[0], late.checked_edges[0]), (None, 0));
     assert_eq!(late.side_blockers[1], None);
@@ -108,13 +108,13 @@ fn external_trial_checks_current_bodies_on_both_physical_lanes_until_the_tail_cl
     assert_eq!(early.checked_edges[1], 0);
     assert_eq!(
         world
-            .preview_route_handoff_traffic(&binding, 1, &trial, 0, 0, 5_000_000)
+            .preview_route_handoff_traffic(&binding, 1, &trial, 0, 0, TRAVEL_TOLERANCE_MM)
             .unwrap_err(),
         RouteHandoffTrafficError::Trial(RouteHandoffTrialError::UnboundOccurrence)
     );
     assert_eq!(
         world
-            .preview_route_handoff_traffic(&binding, 2, &trial, u64::MAX, 1, 5_000_000)
+            .preview_route_handoff_traffic(&binding, 2, &trial, u64::MAX, 1, TRAVEL_TOLERANCE_MM)
             .unwrap_err(),
         RouteHandoffTrafficError::Sample(RouteHandoffSampleError::DistanceOverflow)
     );
@@ -127,7 +127,7 @@ fn external_trial_checks_current_bodies_on_both_physical_lanes_until_the_tail_cl
     };
     assert_eq!(
         world
-            .preview_route_handoff_traffic(&binding, 2, &fixed, 0, 0, 5_000_000)
+            .preview_route_handoff_traffic(&binding, 2, &fixed, 0, 0, TRAVEL_TOLERANCE_MM)
             .unwrap_err(),
         RouteHandoffTrafficError::Unlocated(HandoffOutcome::GeometryRejected)
     );
@@ -135,7 +135,7 @@ fn external_trial_checks_current_bodies_on_both_physical_lanes_until_the_tail_cl
 
     world.despawn_vehicle(source).unwrap();
     assert_eq!(
-        traffic(&mut world, 15_000_000, 0).side_blockers,
+        traffic(&mut world, 15_000, 0).side_blockers,
         [None, Some(target)]
     );
     let replacement = world
@@ -143,7 +143,7 @@ fn external_trial_checks_current_bodies_on_both_physical_lanes_until_the_tail_cl
         .unwrap();
     assert_ne!(replacement, source);
     assert_eq!(
-        traffic(&mut world, 15_000_000, 0).side_blockers,
+        traffic(&mut world, 15_000, 0).side_blockers,
         [Some(replacement), Some(target)]
     );
 }

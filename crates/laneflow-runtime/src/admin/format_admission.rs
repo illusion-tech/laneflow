@@ -4,12 +4,13 @@
 //! 保持原有校验先后、共同运行时不变量和分配行为；不建立额外的全量解码副本。
 //! 只有所有检查成功才返回完整恢复结果，kernel 不接收 wire view。
 
+use crate::kernel::conflict::RelativeDownstreamEnd;
 use crate::kernel::state::WorldState;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v7 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v8 as wire;
 use laneflow_runtime_snapshot_wire::runtime::VerifierOptions;
 use laneflow_static_contract::{
     ConflictZoneId, LaneEdgeId, ManeuverGateId, ManeuverPathId, ParkingFacilityId, ParkingSpaceId,
@@ -48,14 +49,13 @@ const MAX_SCHEMA_TABLE_DEPTH: usize = 6;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 const MICROMETRES_PER_MILLIMETRE: u16 = 1_000;
 const ROOT_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_SOURCE_EDITABLE);
-const WORLD_CONFIG_FIELDS: usize =
-    vtable_field_count(wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS);
+const WORLD_CONFIG_FIELDS: usize = vtable_field_count(wire::WorldConfigBinding::VT_HANDOFF_POLICY);
 const PUBLISHED_SOURCE_FIELDS: usize =
     vtable_field_count(wire::PublishedSourceBinding::VT_NETWORK_REVISION);
 const EDITABLE_SOURCE_FIELDS: usize =
     vtable_field_count(wire::EditableSourceBinding::VT_MODULE_COUNT);
-const ROUTE_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
-const VEHICLE_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_CONFLICT_RESERVATION);
+const ROUTE_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_HANDOFF_WINDOWS);
+const VEHICLE_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_HANDOFFS);
 const PARKING_BINDING_FIELDS: usize =
     vtable_field_count(wire::ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM);
 const MANEUVER_TRAVERSAL_FIELDS: usize =
@@ -70,10 +70,8 @@ const CONFLICT_ELIGIBILITY_FIELDS: usize =
     vtable_field_count(wire::ConflictEligibilityBinding::VT_FIRST_ELIGIBLE_TICK);
 const CONFLICT_PASSAGE_FIELDS: usize =
     vtable_field_count(wire::ConflictPassageBinding::VT_CLEARANCE_PROGRESS_MM);
-const CONFLICT_DOWNSTREAM_FIELDS: usize =
-    vtable_field_count(wire::ConflictDownstreamIntervalBinding::VT_END_MM);
 const CONFLICT_RESERVATION_FIELDS: usize =
-    vtable_field_count(wire::ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS);
+    vtable_field_count(wire::ConflictReservationBinding::VT_DOWNSTREAM_END);
 const CONFLICT_LAG_STATE_FIELDS: usize =
     vtable_field_count(wire::ConflictLagState::VT_REFERENCE_TIME_MS);
 
@@ -178,9 +176,33 @@ pub(super) fn verify_semantic_diff(
 pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
     let mut fbb = runtime::FlatBufferBuilder::new();
 
+    let policy = snapshot.config.handoff_driving().map(|config| {
+        let points: Vec<_> = config
+            .curve
+            .points()
+            .iter()
+            .map(|p| wire::ClearanceSpeedPoint::new(p.clearance_mm, p.speed_mm_s))
+            .collect();
+        let points = fbb.create_vector(&points);
+        wire::HandoffDrivingPolicy::create(
+            &mut fbb,
+            &wire::HandoffDrivingPolicyArgs {
+                policy_version: 2,
+                max_span_mm: config.max_span_mm.get(),
+                travel_tolerance_mm: config.travel_tolerance_mm.get(),
+                points: Some(points),
+            },
+        )
+    });
     let world_config = wire::WorldConfigBinding::create(
         &mut fbb,
         &wire::WorldConfigBindingArgs {
+            handoff_mode: if policy.is_some() {
+                wire::HandoffMode::Enabled
+            } else {
+                wire::HandoffMode::Disabled
+            },
+            handoff_policy: policy,
             vehicle_capacity: snapshot.config.vehicle_capacity(),
             route_capacity: snapshot.config.route_capacity(),
             route_edge_occurrence_capacity: snapshot.config.route_edge_occurrence_capacity(),
@@ -201,11 +223,28 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                 .map(|stable_id| wire::StableId128::new(stable_id.as_bytes()))
                 .collect::<Vec<_>>();
             let edges = fbb.create_vector(&edges);
+            let windows: Vec<_> = route
+                .windows
+                .iter()
+                .map(|w| {
+                    wire::HandoffWindow::new(
+                        w.source_index,
+                        w.owner_kind,
+                        &wire::StableId128::new(w.owner.as_bytes()),
+                        &wire::StableId128::new(w.left_member.as_bytes()),
+                        &wire::StableId128::new(w.right_member.as_bytes()),
+                        w.stations_mm[0],
+                        w.stations_mm[1],
+                    )
+                })
+                .collect();
+            let windows = fbb.create_vector(&windows);
             wire::SnapshotRoute::create(
                 &mut fbb,
                 &wire::SnapshotRouteArgs {
                     snapshot_route_id: route.snapshot_route_id,
                     edges: Some(edges),
+                    handoff_windows: Some(windows),
                 },
             )
         })
@@ -371,22 +410,9 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                     })
                     .collect::<Vec<_>>();
                 let passages = fbb.create_vector(&passage_offsets);
-                let downstream_offsets = reservation
-                    .downstream_intervals
-                    .iter()
-                    .map(|row| {
-                        let lane_edge = wire::StableId128::new(row.lane_edge.as_bytes());
-                        wire::ConflictDownstreamIntervalBinding::create(
-                            &mut fbb,
-                            &wire::ConflictDownstreamIntervalBindingArgs {
-                                lane_edge: Some(&lane_edge),
-                                start_mm: row.start_mm,
-                                end_mm: row.end_mm,
-                            },
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                let downstream_intervals = fbb.create_vector(&downstream_offsets);
+                let end = reservation.downstream_end;
+                let downstream_end =
+                    wire::ConflictDownstreamEnd::new(end.relative_hop_offset, end.progress_mm);
                 let admission_gate = wire::StableId128::new(reservation.admission_gate.as_bytes());
                 wire::ConflictReservationBinding::create(
                     &mut fbb,
@@ -397,10 +423,51 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                             .maneuver_entry_route_edge_index,
                         admission_gate: Some(&admission_gate),
                         passages: Some(passages),
-                        downstream_intervals: Some(downstream_intervals),
+                        downstream_end: Some(&downstream_end),
                     },
                 )
             });
+            let handoffs: Vec<_> = vehicle
+                .handoffs
+                .iter()
+                .map(|h| {
+                    let motion = wire::HandoffMotion::new(
+                        h.source_index,
+                        h.trajectory_version,
+                        h.station_window_mm[0],
+                        h.station_window_mm[1],
+                        h.rear_stations_mm[0],
+                        h.rear_stations_mm[1],
+                        h.admitted_speed_bits,
+                        h.tracks,
+                        h.sweep,
+                        h.rear_travel_um,
+                        u8::from(h.front_handed_off),
+                        h.acquired_tick,
+                    );
+                    let protections: Vec<_> = h
+                        .protections
+                        .iter()
+                        .map(|p| {
+                            wire::HandoffProtection::new(
+                                wire::HandoffProtectionRole(p.role),
+                                &wire::StableId128::new(p.edge.as_bytes()),
+                                p.start_mm,
+                                p.end_mm,
+                            )
+                        })
+                        .collect();
+                    let protections = fbb.create_vector(&protections);
+                    wire::CommittedHandoff::create(
+                        &mut fbb,
+                        &wire::CommittedHandoffArgs {
+                            motion: Some(&motion),
+                            protections: Some(protections),
+                        },
+                    )
+                })
+                .collect();
+            let handoffs = fbb.create_vector(&handoffs);
             wire::SnapshotVehicle::create(
                 &mut fbb,
                 &wire::SnapshotVehicleArgs {
@@ -418,6 +485,7 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                     waiting_membership,
                     conflict_eligibility,
                     conflict_reservation,
+                    handoffs: Some(handoffs),
                 },
             )
         })
@@ -623,14 +691,34 @@ pub(super) fn restore_lfrs(
             .iter()
             .map(|stable_id| StableId128::from_bytes(stable_id.0))
             .collect::<Vec<_>>();
+        let mut windows = Vec::new();
+        windows
+            .try_reserve_exact(route.handoff_windows().len())
+            .map_err(|_| SnapshotRestoreError::HandoffAllocationFailed)?;
+        windows.extend(
+            route
+                .handoff_windows()
+                .iter()
+                .map(|w| crate::StableRouteHandoffWindow {
+                    source_index: w.source_index(),
+                    owner_kind: w.owner_kind(),
+                    owner: StableId128::from_bytes(w.owner().0),
+                    left_member: StableId128::from_bytes(w.left_member().0),
+                    right_member: StableId128::from_bytes(w.right_member().0),
+                    stations_mm: [w.low_mm(), w.high_mm()],
+                }),
+        );
         let handle = world
-            .register_admitted_route(AdmittedRouteRegisterInput::new(
-                laneflow_static_contract::NetworkRevisionId::from_digest(
-                    laneflow_static_contract::Sha256Digest::from_bytes(root_revision.0),
-                ),
-                contracts.network_revision_derivation_version(),
-                stable_edges,
-            ))
+            .register_admitted_route(
+                AdmittedRouteRegisterInput::new(
+                    laneflow_static_contract::NetworkRevisionId::from_digest(
+                        laneflow_static_contract::Sha256Digest::from_bytes(root_revision.0),
+                    ),
+                    contracts.network_revision_derivation_version(),
+                    stable_edges,
+                )
+                .with_handoffs(windows),
+            )
             .map_err(|error| SnapshotRestoreError::Route {
                 snapshot_route_id,
                 error,
@@ -652,6 +740,8 @@ pub(super) fn restore_lfrs(
     world.refresh_signals();
 
     let vehicle_rows = root.vehicles();
+    let defer_overlap = target_config.handoff_driving().is_some()
+        && vehicle_rows.iter().any(|row| !row.handoffs().is_empty());
     let mut vehicle_map = BTreeMap::new();
     // 非 Active 先恢复，Active 最后恢复；每辆车都以最终状态一次提交，
     // 因此 Completed 不会被临时当成 Active，Active 的 carry 也参与提交前 3A 校验。
@@ -661,7 +751,14 @@ pub(super) fn restore_lfrs(
             if (status == VehicleStatus::Active) != active_pass {
                 continue;
             }
-            restore_vehicle(&mut world, vehicle, status, &route_map, &mut vehicle_map)?;
+            restore_vehicle(
+                &mut world,
+                vehicle,
+                status,
+                &route_map,
+                &mut vehicle_map,
+                defer_overlap,
+            )?;
         }
     }
 
@@ -688,6 +785,7 @@ pub(super) fn restore_lfrs(
     world.rebuild_active_order();
     restore_waiting_aggregate(&mut world, root)?;
     restore_conflict_aggregate(&mut world, root, &vehicle_map)?;
+    restore_handoffs(&mut world, root, &vehicle_map)?;
     world.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
     world.committed.command_cursor = root.command_cursor();
     world.committed.event_cursor = root.event_cursor();
@@ -698,6 +796,24 @@ pub(super) fn restore_lfrs(
         .rebuild_occupancy_index()
         .map_err(SnapshotRestoreError::Occupancy)?;
 
+    if defer_overlap {
+        // 普通车和横移车此时分别使用纵向区间和已证的双侧区间，车辆的读入顺序不参与判断。
+        if let Some(owner) = world.derived.occupancy.overlapping_vehicle() {
+            let snapshot_vehicle_id = vehicle_map
+                .iter()
+                .find_map(|(&id, &h)| (h == owner).then_some(id))
+                .ok_or(SnapshotRestoreError::InvalidHandoffState)?;
+            return Err(SnapshotRestoreError::Vehicle {
+                snapshot_vehicle_id,
+                error: crate::SpawnError::Overlap,
+            });
+        }
+        world.derived.spawn_overlap.mark_stale();
+    }
+
+    if world.conflict_platoons_valid() != Ok(true) {
+        return Err(SnapshotRestoreError::InvalidConflictPlatoon);
+    }
     let execution =
         crate::kernel::execution::WorldExecution::prepare(execution, &world).map_err(|error| {
             match error {
@@ -721,8 +837,6 @@ pub(super) fn restore_lfrs(
 
 /// 把 wire 的 `(stream, zone)` 定位对解析为当前修订内的静态 passage 地址。
 ///
-/// v7 行内只有静态定位对。旧构建或外来制品若以归属定位对编码固定过渡资源，
-/// 读方无法区分它与真实静态格历史。当前写方在保存时拒绝此类状态（#1217）。
 fn decode_conflict_locator(
     world: &WorldState,
     binding: wire::ConflictPassageLocatorBinding<'_>,
@@ -765,6 +879,148 @@ fn route_position_um(
         .checked_add(u128::from(progress_mm))?
         .checked_mul(u128::from(MICROMETRES_PER_MILLIMETRE))?
         .checked_add(u128::from(carry_um))
+}
+
+fn restore_handoffs(
+    world: &mut WorldState,
+    root: wire::RuntimeSnapshot<'_>,
+    vehicles: &BTreeMap<u64, VehicleHandle>,
+) -> Result<(), SnapshotRestoreError> {
+    use crate::kernel::handoff::execution::{ActiveRouteHandoff, HandoffProtection};
+    let wire_bytes = root._tab.buf().len();
+    let total = root.vehicles().iter().try_fold(0usize, |total, vehicle| {
+        total
+            .checked_add(vehicle.handoffs().len())
+            .ok_or(SnapshotRestoreError::InvalidHandoffState)
+    })?;
+    if total == 0 {
+        return Ok(());
+    }
+    if world.binding.config.handoff_driving().is_none() {
+        return Err(SnapshotRestoreError::InvalidHandoffState);
+    }
+    let mut consumed = total
+        .checked_mul(size_of::<wire::HandoffMotion>())
+        .filter(|size| *size <= wire_bytes)
+        .ok_or(SnapshotRestoreError::InvalidHandoffState)?;
+    world
+        .committed
+        .handoffs
+        .try_reserve_exact(total)
+        .map_err(|_| SnapshotRestoreError::HandoffAllocationFailed)?;
+    for row in root.vehicles() {
+        let handoffs = row.handoffs();
+        if handoffs.is_empty() {
+            continue;
+        }
+        let handle = *vehicles
+            .get(&row.snapshot_vehicle_id())
+            .ok_or(SnapshotRestoreError::InvalidHandoffState)?;
+        let vehicle = world
+            .vehicle_state(handle)
+            .ok_or(SnapshotRestoreError::InvalidHandoffState)?;
+        let route = world
+            .compiled_route(vehicle.route)
+            .ok_or(SnapshotRestoreError::InvalidHandoffState)?;
+        if handoffs.len() > route.handoff_windows().len() {
+            return Err(SnapshotRestoreError::InvalidHandoffState);
+        }
+        let mut prior_source = None;
+        for handoff in handoffs {
+            let motion = handoff.motion();
+            let source_index = motion.source_index();
+            let speed = f64::from_bits(motion.admitted_speed_bits());
+            let limits = laneflow_static_network::vehicle::GeometryWorkLimits::STANDARD;
+            if prior_source.is_some_and(|prior| prior >= source_index)
+                || motion.trajectory_version() != 1
+                || !speed.is_finite()
+                || speed.is_sign_negative()
+                || laneflow_static_network::vehicle::HandoffStationRange::from_millimetres([
+                    motion.station_low_mm(),
+                    motion.station_high_mm(),
+                ])
+                .is_none()
+                || motion.rear_start_mm() == motion.rear_end_mm()
+                || [motion.rear_start_mm(), motion.rear_end_mm()]
+                    .iter()
+                    .any(|rear| {
+                        !(motion.station_low_mm()..=motion.station_high_mm()).contains(rear)
+                    })
+                || motion.tracks() > limits.tracks
+                || motion.sweep() > limits.sweep
+                || motion.rear_travel_um().checked_mul(1000).is_none()
+                || motion.front_handed_off() > 1
+                || motion.acquired_tick() > root.tick()
+            {
+                return Err(SnapshotRestoreError::InvalidHandoffState);
+            }
+            prior_source = Some(source_index);
+            let rows = handoff.protections();
+            consumed = rows
+                .len()
+                .checked_mul(size_of::<wire::HandoffProtection>())
+                .and_then(|n| consumed.checked_add(n))
+                .ok_or(SnapshotRestoreError::InvalidHandoffState)?;
+            if consumed > wire_bytes {
+                return Err(SnapshotRestoreError::InvalidHandoffState);
+            }
+            let mut protections = Vec::new();
+            protections
+                .try_reserve_exact(rows.len())
+                .map_err(|_| SnapshotRestoreError::HandoffAllocationFailed)?;
+            let mut previous = None;
+            for row in rows {
+                let role = row.role().0;
+                let stable = StableId128::from_bytes(row.edge().0);
+                let edge = world
+                    .binding
+                    .revision
+                    .identity()
+                    .ordinal(LaneEdgeId::from_untyped(stable))
+                    .ok_or(SnapshotRestoreError::InvalidHandoffState)?;
+                if !(1..=4).contains(&role)
+                    || row.start_mm() >= row.end_mm()
+                    || row.end_mm()
+                        > world.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
+                    || previous.is_some_and(|(r, id, end)| {
+                        (r, id) > (role, stable)
+                            || ((r, id) == (role, stable) && end >= row.start_mm())
+                    })
+                {
+                    return Err(SnapshotRestoreError::InvalidHandoffState);
+                }
+                previous = Some((role, stable, row.end_mm()));
+                protections.push(HandoffProtection {
+                    role,
+                    edge,
+                    start_mm: row.start_mm(),
+                    end_mm: row.end_mm(),
+                });
+            }
+            world.committed.handoffs.push(ActiveRouteHandoff {
+                vehicle: handle,
+                source_index,
+                trajectory_version: motion.trajectory_version(),
+                station_window_mm: [motion.station_low_mm(), motion.station_high_mm()],
+                rear_stations_mm: [motion.rear_start_mm(), motion.rear_end_mm()],
+                admitted_speed_bits: motion.admitted_speed_bits(),
+                tracks: motion.tracks(),
+                sweep: motion.sweep(),
+                rear_travel_um: motion.rear_travel_um(),
+                front_handed_off: motion.front_handed_off() == 1,
+                acquired_tick: motion.acquired_tick(),
+                protections,
+            });
+        }
+    }
+    world
+        .committed
+        .handoffs
+        .sort_unstable_by_key(|h| (h.vehicle.index(), h.source_index));
+    if !world.validate_restored_handoffs() {
+        return Err(SnapshotRestoreError::InvalidHandoffState);
+    }
+    Ok(())
 }
 
 fn restore_conflict_aggregate(
@@ -831,20 +1087,6 @@ fn restore_conflict_aggregate(
                     snapshot_vehicle_id,
                 },
             )?;
-            // 归属≠身份（#1217 P1-4 恢复面）：过渡出现记录的持久行表达不了资源
-            // 种类与 T 稳定边身份（混合 hop 下归属派生对还恰与静态格重合），
-            // 按资源种类 fail closed，不得把归属对重绑成静态 passage 身份。
-            if !matches!(
-                compiled
-                    .conflicts
-                    .get(usize::try_from(binding.conflict_occurrence_index()).unwrap_or(usize::MAX))
-                    .map(|occurrence| occurrence.resource),
-                Some(crate::kernel::conflict::ConflictResource::Zone(_))
-            ) {
-                return Err(SnapshotRestoreError::InvalidConflictAuthority {
-                    snapshot_vehicle_id,
-                });
-            }
             let maneuver = compiled
                 .maneuvers
                 .get(locator.maneuver_occurrence_index() as usize)
@@ -904,7 +1146,6 @@ fn restore_conflict_aggregate(
             || traversal.phase().0 != wire::ManeuverTraversalPhaseKind::Clearing.0
             || traversal.maneuver_occurrence_index() != binding.maneuver_occurrence_index()
             || binding.passages().is_empty()
-            || binding.downstream_intervals().is_empty()
         {
             return Err(SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
@@ -1073,17 +1314,6 @@ fn restore_conflict_aggregate(
                 .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
                 })?;
-            // 归属≠身份（#1217 P1-4 恢复面）：覆盖过渡出现记录的持久行表达不了
-            // 资源种类与 T 稳定边身份，fail closed；混合 hop 下归属派生对恰与
-            // 静态格重合，必须按资源种类拦截，不得重绑到静态 Zone 格。
-            if !matches!(
-                occurrence.resource,
-                crate::kernel::conflict::ConflictResource::Zone(_)
-            ) {
-                return Err(SnapshotRestoreError::InvalidConflictAuthority {
-                    snapshot_vehicle_id,
-                });
-            }
             if occurrence.entry.route_edge_index != row.entry_route_edge_index()
                 || occurrence.entry.progress_mm != row.entry_progress_mm()
                 || occurrence.clearance.route_edge_index != row.clearance_route_edge_index()
@@ -1136,75 +1366,31 @@ fn restore_conflict_aggregate(
             });
         }
 
+        let end = binding.downstream_end();
+        let point = RelativeDownstreamEnd {
+            relative_hop_offset: end.relative_hop_offset(),
+            progress_mm: end.progress_mm(),
+        }
+        .point(binding.maneuver_entry_route_edge_index())
+        .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
+            snapshot_vehicle_id,
+        })?;
+        let plan = world
+            .reservation_downstream_claim_plan_to(passage_range, state.length_mm, point)
+            .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            })?;
         let mut downstream = Vec::new();
         downstream
-            .try_reserve_exact(binding.downstream_intervals().len())
-            .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
-                snapshot_vehicle_id,
-            })?;
-        let mut previous_wire_key = None;
-        for row in binding.downstream_intervals() {
-            let lane_edge =
-                row.lane_edge()
-                    .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
-                        snapshot_vehicle_id,
-                    })?;
-            let stable = StableId128::from_bytes(lane_edge.0);
-            let wire_key = (stable, row.start_mm(), row.end_mm());
-            if previous_wire_key.is_some_and(|previous| previous >= wire_key) {
-                return Err(SnapshotRestoreError::InvalidConflictAuthority {
-                    snapshot_vehicle_id,
-                });
-            }
-            previous_wire_key = Some(wire_key);
-            let edge = world
-                .binding
-                .revision
-                .identity()
-                .ordinal(LaneEdgeId::from_untyped(stable))
-                .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
-                    snapshot_vehicle_id,
-                })?;
-            let interval = crate::DownstreamInterval::new(edge, row.start_mm(), row.end_mm())
-                .filter(|interval| {
-                    interval.end_mm()
-                        <= world.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
-                })
-                .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
-                    snapshot_vehicle_id,
-                })?;
-            downstream.push(interval);
-        }
-        downstream.sort_unstable();
-        if downstream.windows(2).any(|pair| pair[0] >= pair[1]) {
-            return Err(SnapshotRestoreError::InvalidConflictAuthority {
-                snapshot_vehicle_id,
-            });
-        }
-        let mut expected_downstream = Vec::new();
-        let downstream_plan = world
-            .reservation_downstream_claim_plan(passage_range, state.length_mm)
-            .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
-                snapshot_vehicle_id,
-            })?;
-        expected_downstream
-            .try_reserve_exact(downstream_plan.raw_interval_capacity())
+            .try_reserve_exact(plan.raw_interval_capacity())
             .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
             })?;
         world
-            .derive_reservation_downstream_claims_from_plan(
-                downstream_plan,
-                &mut expected_downstream,
-            )
+            .derive_reservation_downstream_claims_from_plan(plan, &mut downstream)
             .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
             })?;
-        if downstream != expected_downstream {
-            return Err(SnapshotRestoreError::InvalidConflictAuthority {
-                snapshot_vehicle_id,
-            });
-        }
         let follower_min_gap_mm = world
             .binding
             .revision
@@ -1226,7 +1412,7 @@ fn restore_conflict_aggregate(
                 follower_min_gap_mm,
                 acquired_tick: binding.acquired_tick(),
                 passage_range,
-                downstream_target: downstream_plan.target(),
+                downstream_target: point,
                 cells: &restored_cells,
                 downstream: &downstream,
             },
@@ -1598,6 +1784,36 @@ fn validate_bindings(
     }
 
     let snapshot_config = root.world_config();
+    let policy_matches = match (
+        snapshot_config.handoff_mode(),
+        snapshot_config.handoff_policy(),
+        target_config.handoff_driving(),
+    ) {
+        (wire::HandoffMode::Disabled, None, None) => true,
+        (wire::HandoffMode::Enabled, Some(policy), Some(config)) => {
+            validate_table_field_count(
+                "HandoffDrivingPolicy",
+                policy._tab,
+                vtable_field_count(wire::HandoffDrivingPolicy::VT_POINTS),
+            )?;
+            policy.policy_version() == 2
+                && policy.max_span_mm() == config.max_span_mm.get()
+                && policy.travel_tolerance_mm() == config.travel_tolerance_mm.get()
+                && policy
+                    .points()
+                    .iter()
+                    .map(|p| (p.clearance_mm(), p.speed_mm_s()))
+                    .eq(config
+                        .curve
+                        .points()
+                        .iter()
+                        .map(|p| (p.clearance_mm, p.speed_mm_s)))
+        }
+        _ => false,
+    };
+    if !policy_matches {
+        return Err(SnapshotRestoreError::InvalidHandoffPolicy);
+    }
     if snapshot_config.fixed_delta_time_ms() != target_config.fixed_delta_time_ms() {
         return Err(SnapshotRestoreError::FixedDeltaTimeMismatch {
             snapshot: snapshot_config.fixed_delta_time_ms(),
@@ -1651,6 +1867,11 @@ fn validate_bindings(
     }
     let mut occurrence_count = 0_u64;
     for route in root.routes() {
+        if route.handoff_windows().len() > route.edges().len().saturating_sub(1)
+            || (target_config.handoff_driving().is_none() && !route.handoff_windows().is_empty())
+        {
+            return Err(SnapshotRestoreError::InvalidHandoffState);
+        }
         occurrence_count = occurrence_count
             .checked_add(u64::try_from(route.edges().len()).unwrap_or(u64::MAX))
             .ok_or_else(|| {
@@ -1719,6 +1940,13 @@ fn validate_closed_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), Snapsho
     }
     for vehicle in root.vehicles() {
         validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_FIELDS)?;
+        for h in vehicle.handoffs() {
+            validate_table_field_count(
+                "CommittedHandoff",
+                h._tab,
+                vtable_field_count(wire::CommittedHandoff::VT_PROTECTIONS),
+            )?;
+        }
         if let Some(parking) = vehicle.parking() {
             validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_FIELDS)?;
         }
@@ -1757,13 +1985,6 @@ fn validate_closed_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), Snapsho
                     CONFLICT_PASSAGE_FIELDS,
                 )?;
                 validate_conflict_locator_table(passage.passage())?;
-            }
-            for downstream in reservation.downstream_intervals() {
-                validate_table_field_count(
-                    "ConflictDownstreamIntervalBinding",
-                    downstream._tab,
-                    CONFLICT_DOWNSTREAM_FIELDS,
-                )?;
             }
         }
     }
@@ -2171,6 +2392,7 @@ fn restore_vehicle(
     status: VehicleStatus,
     route_map: &BTreeMap<u64, RouteHandle>,
     vehicle_map: &mut BTreeMap<u64, VehicleHandle>,
+    defer_overlap: bool,
 ) -> Result<(), SnapshotRestoreError> {
     let snapshot_vehicle_id = vehicle.snapshot_vehicle_id();
     if snapshot_vehicle_id == 0 {
@@ -2286,8 +2508,11 @@ fn restore_vehicle(
                 status,
                 waiting.traversal,
                 waiting.membership,
-                vehicle.conflict_eligibility().is_some()
-                    || vehicle.conflict_reservation().is_some(),
+                crate::kernel::world::RestoreAdmission {
+                    conflict_authority: vehicle.conflict_eligibility().is_some()
+                        || vehicle.conflict_reservation().is_some(),
+                    defer_overlap,
+                },
             )
             .map_err(|error| SnapshotRestoreError::Vehicle {
                 snapshot_vehicle_id,

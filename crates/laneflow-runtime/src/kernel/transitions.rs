@@ -128,7 +128,7 @@ impl TrafficTransitionKind {
                     } else {
                         6
                     },
-                    crate::kernel::conflict::resource_order_raw(address.resource()),
+                    address.zone().raw(),
                     address.stream().raw(),
                     address.passage_local_index(),
                 )

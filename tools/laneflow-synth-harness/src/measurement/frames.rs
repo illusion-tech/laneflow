@@ -15,12 +15,14 @@ pub(super) struct FrameInput {
 pub(super) fn inputs(plan: &Plan) -> Vec<FrameInput> {
     let quantum = u64::from(plan.identity.fixed_delta_ms) * 1_000_000;
     let mut targets = vec![plan.warm_up_ticks];
-    if plan.identity.case != Case::W4 {
+    if plan.identity.lane_change().is_some() {
+        targets = plan.handoff_checkpoints()[1..].to_vec();
+    } else if plan.identity.case != Case::W4 {
         targets.extend([1_024, 2_048, 4_096].map(|n| plan.warm_up_ticks + n));
         targets.push(plan.warm_up_ticks + plan.observation_ticks);
     }
     let total = plan.warm_up_ticks + plan.observation_ticks;
-    // 短窗场景（L 族）的 1024/2048/4096 边界可能越出总拍数，须过滤。
+    // 仅保留本次窗口之内的检查点。
     targets.retain(|&target| target <= total);
     targets.sort_unstable();
     targets.dedup();
@@ -134,6 +136,46 @@ mod tests {
             (d.samples, d.p50_ns, d.p95_ns, d.p99_ns, d.max_ns),
             (100, 50, 95, 99, 100)
         );
+    }
+
+    #[test]
+    fn handoff_frames_end_at_the_same_checkpoints_as_the_headless_reference() {
+        for dt in [16, 33] {
+            let identity = laneflow_synth_generator::Identity::new(
+                10_000,
+                Case::LaneChange(laneflow_synth_generator::LaneChangeParams {
+                    clusters: 1,
+                    changers_per_cluster: 2,
+                }),
+                dt,
+            )
+            .unwrap();
+            let (warm_up_ticks, observation_ticks) = identity.lane_change_window();
+            let plan = Plan {
+                identity,
+                warm_up_ticks,
+                observation_ticks,
+                format: String::new(),
+                boundary_order: Vec::new(),
+                scheduled: Vec::new(),
+                rules: Vec::new(),
+            };
+            let mut elapsed = 0;
+            let boundaries: Vec<_> = inputs(&plan)
+                .into_iter()
+                .filter_map(|frame| {
+                    elapsed += frame.delta_ns;
+                    frame.boundary.then_some(elapsed)
+                })
+                .collect();
+            assert_eq!(
+                boundaries,
+                plan.handoff_checkpoints()[1..]
+                    .iter()
+                    .map(|tick| tick * u64::from(dt) * 1_000_000)
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

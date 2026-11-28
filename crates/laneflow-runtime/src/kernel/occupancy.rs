@@ -276,7 +276,6 @@ impl BucketStore {
         })
     }
 
-    #[cfg(test)]
     fn iter(&self) -> impl Iterator<Item = OccupancyBucket<'_>> + '_ {
         (0..self.spans.len()).filter_map(|index| self.get(index))
     }
@@ -1024,8 +1023,48 @@ impl OccupancyIndex {
             .flat_map(|bucket| bucket.records.iter().map(|record| record.vehicle))
     }
 
+    /// 核对刚重建的恢复占用。桶按区间终点升序，后缀保留排除本车后的最小起点。
+    pub(crate) fn overlapping_vehicle(&self) -> Option<VehicleHandle> {
+        use crate::kernel::tables::admission_intervals_overlap;
+        for bucket in self.buckets.iter() {
+            for (index, adjacent) in bucket.records.windows(2).enumerate() {
+                let (here, next) = (&adjacent[0], &adjacent[1]);
+                // 同一毫米点的退化区间在桶内相邻。与非空区间仅端点相接仍合法。
+                if here.vehicle != next.vehicle
+                    && admission_intervals_overlap(here.lo_mm, here.hi_mm, next.lo_mm, next.hi_mm)
+                {
+                    return Some(next.vehicle);
+                }
+                if let Some(other) = self.min_lo_from(&bucket, index + 1, here.vehicle)
+                    && admission_intervals_overlap(here.lo_mm, here.hi_mm, other.lo_mm, other.hi_mm)
+                {
+                    return Some(other.vehicle);
+                }
+            }
+        }
+        None
+    }
+
     fn bucket(&self, edge: LaneEdgeOrdinal) -> Option<OccupancyBucket<'_>> {
         self.buckets.get(edge.index())
+    }
+
+    /// 与普通重叠索引使用相同的区间及 live 序破平，车身直接取本边的已提交片段。
+    pub(super) fn admission_blocker(
+        &self,
+        edge: LaneEdgeOrdinal,
+        lo: u32,
+        hi: u32,
+    ) -> Option<VehicleHandle> {
+        let records = self.bucket(edge)?.records;
+        let first = records.partition_point(|r| r.hi_mm < lo);
+        records[first..]
+            .iter()
+            .filter(|r| {
+                crate::kernel::tables::admission_intervals_overlap(lo, hi, r.lo_mm, r.hi_mm)
+            })
+            .max_by_key(|r| (r.hi_mm, r.lo_mm, std::cmp::Reverse(r.update_sequence)))
+            .map(|r| r.vehicle)
     }
 
     /// 与毫米闭区间相交的一个已提交车体片段，包含零进度入口。以片段起点、
@@ -1545,12 +1584,72 @@ fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdge
     Some(slot.compiled.as_ref()?.edges.as_slice())
 }
 
+type HandoffOccupancy = (
+    VehicleHandle,
+    laneflow_static_network::vehicle::HandoffFootprint,
+);
+
+fn handoff_occupancy(
+    binding: &crate::kernel::state::WorldBindingState,
+    committed: &crate::kernel::state::CommittedWorldState,
+    plans: &[std::sync::Arc<crate::kernel::handoff::execution::PreparedRouteHandoff>],
+) -> Result<Vec<HandoffOccupancy>, StepError> {
+    let mut handoffs = Vec::new();
+    handoffs
+        .try_reserve_exact(committed.handoffs.len())
+        .map_err(|_| StepError::OccupancyAllocFailed)?;
+    for active in &committed.handoffs {
+        let state = vehicle_state_in(&committed.vehicles, active.vehicle)
+            .ok_or(StepError::OccupancyIntervalIncomplete)?;
+        let route =
+            crate::kernel::tables::compiled_route_for_handle(&committed.routes, state.route)
+                .ok_or(StepError::OccupancyIntervalIncomplete)?;
+        let sample = active
+            .sample(binding, route, state, plans)
+            .ok_or(StepError::OccupancyIntervalIncomplete)?;
+        handoffs.push((active.vehicle, sample.footprint));
+    }
+    Ok(handoffs)
+}
+
+fn visit_handoff_occupancy(
+    handoffs: &[HandoffOccupancy],
+    state: VehicleState,
+    update_sequence: u32,
+    visit: &mut impl FnMut(OccupancyRecord),
+) -> bool {
+    let Ok(index) =
+        handoffs.binary_search_by_key(&state.handle.index(), |(owner, _)| owner.index())
+    else {
+        return false;
+    };
+    let (owner, footprint) = &handoffs[index];
+    if *owner != state.handle {
+        return false;
+    }
+    for side in footprint.sides.iter().flatten() {
+        for address in side.enclosure.addresses() {
+            let [lo_mm, hi_mm] = address.progress_mm;
+            visit(OccupancyRecord {
+                vehicle: *owner,
+                bucket: OccupancyBucketOrdinal::from_edge(address.edge),
+                lo_mm,
+                hi_mm,
+                update_sequence,
+                speed_mm_s: state.speed_mm_s,
+            });
+        }
+    }
+    true
+}
+
 fn visit_occupancy_records_with(
     live_order: &[VehicleHandle],
     vehicles: &crate::kernel::vehicle_store::VehicleStore,
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
     staged_by_slot: &[Option<&CompiledRoute>],
+    handoffs: &[HandoffOccupancy],
     mut visit: impl FnMut(OccupancyRecord),
 ) -> Result<(), StepError> {
     let lengths = revision.traffic().lane_lengths_millimetres();
@@ -1574,6 +1673,9 @@ fn visit_occupancy_records_with(
         let Ok(update_sequence) = u32::try_from(sequence) else {
             return Err(StepError::OccupancyIntervalIncomplete);
         };
+        if visit_handoff_occupancy(handoffs, state, update_sequence, &mut visit) {
+            continue;
+        }
         for_each_admission_interval(
             lengths,
             edges,
@@ -1601,9 +1703,10 @@ fn visit_occupancy_records(
     vehicles: &crate::kernel::vehicle_store::VehicleStore,
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
+    handoffs: &[HandoffOccupancy],
     visit: impl FnMut(OccupancyRecord),
 ) -> Result<(), StepError> {
-    visit_occupancy_range(live_order, 0, vehicles, revision, routes, visit)
+    visit_occupancy_range(live_order, 0, vehicles, revision, routes, handoffs, visit)
 }
 
 /// 遍历 `live_order` 的一段；`base` 是该段首项在完整 live 顺序中的序号。
@@ -1614,6 +1717,7 @@ fn visit_occupancy_range(
     vehicles: &crate::kernel::vehicle_store::VehicleStore,
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
+    handoffs: &[HandoffOccupancy],
     mut visit: impl FnMut(OccupancyRecord),
 ) -> Result<(), StepError> {
     let lengths = revision.traffic().lane_lengths_millimetres();
@@ -1633,6 +1737,9 @@ fn visit_occupancy_range(
         let Ok(update_sequence) = u32::try_from(base + offset) else {
             return Err(StepError::OccupancyIntervalIncomplete);
         };
+        if visit_handoff_occupancy(handoffs, state, update_sequence, &mut visit) {
+            continue;
+        }
         for_each_admission_interval(
             lengths,
             edges,
@@ -1663,9 +1770,9 @@ const OCCUPANCY_PARTS_PER_THREAD: usize = 4;
 /// 返回本拍实际使用的段数；更靠后的段已清空。
 fn collect_occupancy_parts(
     live_order: &[VehicleHandle],
-    vehicles: &crate::kernel::vehicle_store::VehicleStore,
+    committed: &crate::kernel::state::CommittedWorldState,
     revision: &SharedNetworkRevision,
-    routes: &[RouteSlot],
+    handoffs: &[HandoffOccupancy],
     all_parts: &mut Vec<OccupancyPart>,
     resources: &crate::kernel::execution::ExecutionResources,
     groups: OccupancyGroups,
@@ -1700,9 +1807,10 @@ fn collect_occupancy_parts(
         let visited = visit_occupancy_range(
             &live_order[start..end],
             start,
-            vehicles,
+            &committed.vehicles,
             revision,
-            routes,
+            &committed.routes,
+            handoffs,
             |record| {
                 if alloc_failed {
                     return;
@@ -1952,6 +2060,7 @@ fn place_occupancy_parallel(
 fn rebuild_occupancy_index(
     binding: &crate::kernel::state::WorldBindingState,
     committed: &crate::kernel::state::CommittedWorldState,
+    plans: &[std::sync::Arc<crate::kernel::handoff::execution::PreparedRouteHandoff>],
     active_order: &[VehicleHandle],
     occupancy: &mut OccupancyIndex,
     scratch: &mut OccupancyScratch,
@@ -1966,6 +2075,7 @@ fn rebuild_occupancy_index(
     #[cfg(test)]
     occupancy.reset_inspections();
     occupancy.try_prepare_scratch(scratch, bucket_count)?;
+    let handoffs = handoff_occupancy(binding, committed, plans)?;
     // 多线程时每辆车只遍历一次：分段并行收集记录，随后按段顺序计数、布局与写入。
     // 单线程保留两遍遍历，不为收集段额外保留内存。
     let execution = execution.filter(|resources| resources.coordinator_parallel());
@@ -1984,9 +2094,9 @@ fn rebuild_occupancy_index(
         let groups = OccupancyGroups::new(bucket_count, resources.dispatch_threads());
         let used = collect_occupancy_parts(
             active_order,
-            &committed.vehicles,
+            committed,
             &binding.revision,
-            &committed.routes,
+            &handoffs,
             parts,
             resources,
             groups,
@@ -2013,6 +2123,7 @@ fn rebuild_occupancy_index(
         &committed.vehicles,
         &binding.revision,
         &committed.routes,
+        &handoffs,
         |record| {
             if let Some(count) = scratch.positions.get_mut(record.bucket.index()) {
                 *count += 1;
@@ -2040,6 +2151,7 @@ fn rebuild_occupancy_index(
         &committed.vehicles,
         &binding.revision,
         &committed.routes,
+        &handoffs,
         |record| occupancy.write_record(scratch, record),
     )?;
     #[cfg(test)]
@@ -2092,12 +2204,20 @@ impl crate::kernel::state::WorldState {
                 *slot = Some(compiled);
             }
         }
+        if !self.committed.handoffs.is_empty()
+            && revision.network_revision() != self.binding.revision.network_revision()
+        {
+            return Err(StepError::HandoffUnproven);
+        }
+        let handoffs =
+            handoff_occupancy(&self.binding, &self.committed, &self.derived.handoff_plans)?;
         visit_occupancy_records_with(
             &self.derived.active_order,
             &self.committed.vehicles,
             revision,
             &self.committed.routes,
             &staged_by_slot,
+            &handoffs,
             |record| {
                 if let Some(count) = scratch.positions.get_mut(record.bucket.index()) {
                     *count += 1;
@@ -2116,6 +2236,7 @@ impl crate::kernel::state::WorldState {
             revision,
             &self.committed.routes,
             &staged_by_slot,
+            &handoffs,
             |record| staged.write_record(&mut scratch, record),
         )?;
         staged.sort_buckets(bucket_count);
@@ -2144,6 +2265,7 @@ impl crate::kernel::state::WorldState {
         rebuild_occupancy_index(
             &self.binding,
             &self.committed,
+            &self.derived.handoff_plans,
             &self.committed.live_order,
             &mut self.derived.occupancy,
             &mut self.workspace.occupancy_scratch,
@@ -2291,7 +2413,7 @@ impl crate::kernel::state::WorldState {
         {
             return;
         }
-        if !self.derived.spawn_overlap.is_current() {
+        if self.committed.handoffs.is_empty() && !self.derived.spawn_overlap.is_current() {
             let edge_count = self
                 .binding
                 .revision
@@ -2842,6 +2964,47 @@ pub(crate) mod tests {
             ([20, 20], Some(records[3].vehicle)),
         ] {
             assert_eq!(index.touching_vehicle(edge, range), expected);
+        }
+    }
+
+    #[test]
+    fn restored_bucket_overlap_matches_pairwise_admission_for_points_and_repeated_owners() {
+        use crate::kernel::tables::admission_intervals_overlap;
+        let mut choices = Vec::new();
+        for vehicle in 0..2 {
+            for lo_mm in 0..=2 {
+                for hi_mm in lo_mm..=2 {
+                    choices.push(OccupancyRecord {
+                        vehicle: VehicleHandle::new(vehicle, 0),
+                        update_sequence: vehicle,
+                        lo_mm,
+                        hi_mm,
+                        ..OccupancyRecord::PLACEHOLDER
+                    });
+                }
+            }
+        }
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(1, 0);
+        for &a in &choices {
+            for &b in &choices {
+                for &c in &choices {
+                    let overlap = [(a, b), (a, c), (b, c)].iter().any(|(left, right)| {
+                        left.vehicle != right.vehicle
+                            && admission_intervals_overlap(
+                                left.lo_mm,
+                                left.hi_mm,
+                                right.lo_mm,
+                                right.hi_mm,
+                            )
+                    });
+                    index.rebuild_from_pending(&mut scratch, &[a, b, c], 1);
+                    assert_eq!(
+                        index.overlapping_vehicle().is_some(),
+                        overlap,
+                        "{a:?} {b:?} {c:?}"
+                    );
+                }
+            }
         }
     }
 
@@ -3960,7 +4123,7 @@ pub(crate) mod tests {
                 crate::VehicleStatus::Active,
                 None,
                 None,
-                false,
+                Default::default(),
             )
             .expect("follower");
         world

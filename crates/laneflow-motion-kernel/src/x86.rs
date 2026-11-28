@@ -70,23 +70,7 @@ unsafe fn finish4<const TRACK: bool>(
         let limit = _mm_loadu_si128(input.committed_limit_mm_s.as_ptr().add(start).cast());
         let stop_cap = _mm_loadu_si128(input.exhausted_speed_cap_mm_s.as_ptr().add(start).cast());
         let projected = unsigned4(speed);
-        // F3' 复审修：过渡耗尽通道（exhausted_cap_dominates）速度取
-        // min(cap, limit)，不与候选投影再 min；其余耗尽通道维持
-        // min(投影, cap, limit)。与标量 finish_values 逐位一致。
-        // R4-1 复审修：布尔列每行 1 字节，四行只有 4 字节——只读 4 字节
-        // （_mm_loadu_si32）再零扩展；不能用 8 字节的 loadl_epi64（恰长
-        // 输入的末组会越过分配读 4 字节）。
-        let dominant = _mm_cvtepu8_epi32(_mm_loadu_si32(
-            input.exhausted_cap_dominates.as_ptr().add(start).cast(),
-        ));
-        let dominant_mask = _mm_cmpeq_epi32(dominant, _mm_set1_epi32(1));
-        let exhausted_value = _mm_blendv_epi8(
-            _mm_min_epu32(_mm_min_epu32(projected, stop_cap), limit),
-            _mm_min_epu32(stop_cap, limit),
-            dominant_mask,
-        );
-        // 非耗尽通道才与投影取 min；耗尽通道的投影合并已在 exhausted_value
-        // 内按主导/非主导分别完成。
+        let exhausted_value = _mm_min_epu32(_mm_min_epu32(projected, stop_cap), limit);
         let speed_value =
             _mm_blendv_epi8(_mm_min_epu32(projected, limit), exhausted_value, exhausted);
         let exhausted_bits = _mm_movemask_ps(_mm_castsi128_ps(exhausted));
@@ -109,16 +93,7 @@ unsafe fn finish4<const TRACK: bool>(
                 exhausted_bits & (1 << lane) != 0 && input.exhausted_speed_cap_mm_s[row] == 0;
             let convertible = travel_convertible
                 && (forced_zero || (speed[lane] >= 0.0 && speed[lane] <= f64::from(u32::MAX)));
-            // 实际耗尽的过渡通道若同时保持跟车界，交给共享完成原语核验最终速度。
-            let check_follower_cap = exhausted_bits & (1 << lane) != 0
-                && input.exhausted_cap_dominates[row]
-                && input.feasible_follower_room_um[row] != NO_FOLLOWER_ROOM;
-            if input.enabled[row]
-                && numeric_valid
-                && convertible
-                && held[lane].is_none()
-                && !check_follower_cap
-            {
+            if input.enabled[row] && numeric_valid && convertible && held[lane].is_none() {
                 -1
             } else {
                 0
@@ -662,7 +637,7 @@ macro_rules! arithmetic {
                 };
                 // #1272 候选形成与停止目标速度归约（与 scalar_row 同式；仅提案
                 // 诞生处，Project 读到的提案已经过归约不得重放地板）：紧急下界
-                // 先于空间目标（F3：过渡舒适档仅在实际耗尽时生效）。
+                // 先于空间目标。
                 let comfort = $load($input.comfort_decel.as_ptr().add(start));
                 let emergency = $load($input.emergency_decel.as_ptr().add(start));
                 let stop_target = $min($load($input.stop_m.as_ptr().add(start)), $load($input.route_end_m.as_ptr().add(start)));
@@ -751,8 +726,7 @@ macro_rules! arithmetic {
                     };
                     let (comfort_cap, comfort_ok) = solve_stop(comfort);
                     let (emergency_cap, emergency_ok) = solve_stop(emergency);
-                    // 两域皆空（具名投影）：保持档位下界推进（过渡用服务/舒适档），
-                    // 位移由硬空间收到目标，线上速度交耗尽层按主导源分档。
+                    // 两域皆空时保持档位下界推进，位移仍受硬空间限制。
                     let cascade = $select(comfort_ok, comfort_cap, $select(emergency_ok, emergency_cap, floor));
                     $select(has_target, $min(lifted, cascade), lifted)
                     }

@@ -28,7 +28,7 @@ pub(super) struct Host {
     pub crossed: Vec<bool>,
     pub transitions: u64,
     pub deceleration: crate::decel::Counters,
-    /// L 族换道预约生命周期史（#1218 面 B）：恢复端由宿主记录续接，
+    /// L1 两辆车的横移阶段历史：恢复端由宿主记录续接，
     /// 使参考/恢复末态投影同跨度可比。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lane_change_journal: Vec<(u64, u16, u32, u32)>,
@@ -394,7 +394,7 @@ pub(super) fn restore(
         .routes
         .iter()
         .enumerate()
-        .filter(|(_, route)| route.edge_ids.len() > 2)
+        .filter(|(_, route)| route.handoff.is_some())
         .map(|(index, _)| index)
         .collect();
     let lane_change_route = lane_change_routes.first().copied();
@@ -426,9 +426,14 @@ pub(super) fn restore(
         as usize;
     let mut lane_change_last_kind = vec![0_u32; lane_change_slots];
     for (_, slot, kind, _) in &host.lane_change_journal {
-        if (4..=7).contains(kind) && (*slot as usize) < lane_change_last_kind.len() {
-            lane_change_last_kind[*slot as usize] = *kind;
-        }
+        let previous = lane_change_last_kind
+            .get_mut(usize::from(*slot))
+            .ok_or_else(|| failure("横移历史槽号", slot))?;
+        require(
+            matches!((*previous, *kind), (0, 10) | (10, 11) | (11, 12)),
+            || "恢复记录的横移阶段不连续".into(),
+        )?;
+        *previous = *kind;
     }
     // 场景族与宿主材料一致性先于会话重建核对（burst 规约入口只接受
     // W3/W4）；burst 检查点必须携带验证材料并逐项对账恢复——缺材料

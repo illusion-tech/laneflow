@@ -33,14 +33,14 @@ fn meters(n: u64) -> Scalar {
     } else {
         range(v.next_down(), v.next_up())
     };
-    x / S(1e9)
+    x / S(1000.0)
 }
 
 struct Cell<'a> {
     curve: CurveSegment<'a>,
     start_point_error: Vector,
     row: &'a ReferenceStationRow,
-    origin: f64,
+    source_stations: [f64; 2],
     nodes: [(u64, u32); 2],
 }
 impl Cell<'_> {
@@ -51,9 +51,11 @@ impl Cell<'_> {
     /// 原线关于路面站位的零至四阶导数。自变量 x 是规范区间的无量纲坐标。
     fn derivatives(&self, x: Scalar) -> std::result::Result<[Vector; 5], NumericFreezeError> {
         let r = self.row;
-        let delta = S(self.origin) - S(r.cumulative_start_meters).widen(r.station_error_meters)
-            + meters(self.nodes[0].0)
-            + self.length() * x;
+        // 量化后的共同站点仍须准确指向原段的同一端面。直接把毫米站位
+        // 代回原线会把某一侧真实纵坡延长到接缝另一侧。
+        let [start, end] = self.source_stations.map(S);
+        let span = end - start;
+        let delta = start - S(r.cumulative_start_meters).widen(r.station_error_meters) + span * x;
         let rate = match self.curve {
             CurveSegment::Native(n) => S(1.) / n.law.road_length(),
             _ => {
@@ -116,6 +118,14 @@ impl Cell<'_> {
                     d[3][i] = S(6.) * c * rate.square() * rate;
                 }
             }
+        }
+        // d 目前关于来源站位。发布导数关于规范站位，线性对应使第 k 阶
+        // 多出 (来源站长 / 规范站长)^k，证明积分也使用同一规范自变量。
+        let scale = span / self.length();
+        let mut power = S(1.);
+        for derivative in &mut d[1..] {
+            power = power * scale;
+            *derivative = derivative.map(|v| v * power);
         }
         Ok(d)
     }
@@ -393,7 +403,7 @@ pub(super) fn build(
                     curve,
                     start_point_error: start_error,
                     row,
-                    origin: domain[0],
+                    source_stations: [a, b],
                     nodes,
                 };
                 // 同一原段内的分行共享源切向。跨原段时先在真实的段端点核对水平朝向。

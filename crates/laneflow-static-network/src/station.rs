@@ -5,8 +5,21 @@ use laneflow_static_contract::{
 
 use crate::RangeU32;
 
+const NM_PER_MM: u64 = 1_000_000;
+
+const fn enclosing_mm([lo, hi]: [u64; 2]) -> [u64; 2] {
+    [lo / NM_PER_MM, hi.div_ceil(NM_PER_MM)]
+}
+
+enum Observation {
+    Outside,
+    Unproven([u64; 2]),
+    Complete([u64; 2]),
+}
+
 mod build;
 mod cross_section;
+mod projection;
 pub mod vehicle;
 pub(crate) use build::build;
 pub use cross_section::{
@@ -16,21 +29,44 @@ pub use cross_section::{
 /// 走廊相对于道路参考线的起点和可查询长度。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StationDomain {
-    /// 在道路参考线上的起点，单位纳米。
-    pub origin_nm: u64,
-    /// 走廊局部域为零至该长度的闭区间。
-    pub length_nm: u64,
-    /// 来源起点相对于规范起点的误差上界。
-    pub origin_error_nm: u32,
+    origin_mm: u64,
+    length_mm: u64,
+    origin_error_mm: u32,
+}
+
+impl StationDomain {
+    /// 道路参考线上的起点，单位毫米。
+    #[must_use]
+    pub const fn origin_mm(self) -> u64 {
+        self.origin_mm
+    }
+
+    /// 走廊局部域从零至此长度，单位毫米。
+    #[must_use]
+    pub const fn length_mm(self) -> u64 {
+        self.length_mm
+    }
+
+    /// 来源起点相对于规范起点的误差上界，单位毫米。
+    #[must_use]
+    pub const fn origin_error_mm(self) -> u32 {
+        self.origin_error_mm
+    }
+
+    /// 供连续查询使用的局部域上界。构建时已检查整数换算。
+    #[must_use]
+    const fn length_nm(self) -> u64 {
+        self.length_mm * NM_PER_MM
+    }
 }
 
 /// 所查站位范围内，设施带两条边界各自的横向偏移闭区间，沿参考方向左正。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FacilityBandBounds {
-    /// 左边界偏移的下、上界，单位纳米，已计入横向误差。
-    pub left_nm: [i64; 2],
-    /// 右边界偏移的下、上界，单位纳米，已计入横向误差。
-    pub right_nm: [i64; 2],
+    /// 左边界偏移的下、上界，单位毫米，已计入横向误差。
+    pub left_mm: [i64; 2],
+    /// 右边界偏移的下、上界，单位毫米，已计入横向误差。
+    pub right_mm: [i64; 2],
 }
 
 /// 一次边进度反查的结果。
@@ -42,15 +78,15 @@ pub enum StationObservation {
     Outside,
     /// 查询预算内无法证明覆盖整个观测。
     Unproven {
-        /// 包含未检查站位的走廊局部区间。
-        unchecked_nm: [u64; 2],
+        /// 包含未检查站位的走廊局部毫米区间。
+        unchecked_mm: [u64; 2],
     },
     /// 该观测的所有可能站位均在给出的闭区间内。
     Complete {
         /// 站位所属走廊。
         corridor: RoadCorridorOrdinal,
-        /// 所属走廊的局部站位闭区间，单位纳米。
-        stations_nm: [u64; 2],
+        /// 所属走廊的局部站位闭区间，按毫米向外取整。
+        stations_mm: [u64; 2],
     },
 }
 
@@ -72,26 +108,52 @@ pub enum StationQuery {
     Outside,
     /// 还有站位未检查，无法确认全部候选。
     Unproven {
-        /// 所属走廊的局部站位闭区间，以纳米计。
-        unchecked_nm: [u64; 2],
+        /// 所属走廊的局部站位闭区间，按毫米向外取整。
+        unchecked_mm: [u64; 2],
     },
     /// 已覆盖整个站位区间。
     Complete(StationCandidates),
 }
 
 /// 有界工作区按目标车道行驶方向保存候选边。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct StationCandidates {
     stations: [u64; 2],
     addresses: [Option<StationAddress>; 8],
     len: usize,
 }
 
+impl core::fmt::Debug for StationCandidates {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StationCandidates")
+            .field("stations_mm", &self.stations_mm())
+            .field("addresses", &&self.addresses[..self.len])
+            .finish()
+    }
+}
+
 impl StationCandidates {
-    /// 源观测对应的可能站位闭区间。
+    /// 源观测对应的可能站位闭区间，两端按毫米向外取整。
     #[must_use]
-    pub const fn stations_nm(&self) -> [u64; 2] {
-        self.stations
+    pub const fn stations_mm(&self) -> [u64; 2] {
+        enclosing_mm(self.stations)
+    }
+
+    /// 整个区间在给定毫米站位之前、覆盖该站位、或在其之后。
+    /// 使用确定候选边时的连续区间比较，恰好接触返回相等。
+    #[must_use]
+    pub fn station_relation(&self, station_mm: u64) -> core::cmp::Ordering {
+        use core::cmp::Ordering;
+        let Some(station) = station_mm.checked_mul(NM_PER_MM) else {
+            return Ordering::Less;
+        };
+        if self.stations[1] < station {
+            Ordering::Less
+        } else if self.stations[0] > station {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
     }
 
     /// 枚举所有候选及其各自的进度范围。
@@ -120,12 +182,18 @@ struct Segment {
     map: StationSpan,
 }
 
+impl Segment {
+    fn stations_nm(&self) -> [u64; 2] {
+        self.map.stations_mm().map(|mm| mm * NM_PER_MM)
+    }
+}
+
 struct Band {
     ordinal: FacilityBandOrdinal,
     corridor: RoadCorridorOrdinal,
-    left_um: [i32; 2],
-    right_um: [i32; 2],
-    error_nm: u32,
+    left_mm: [i32; 2],
+    right_mm: [i32; 2],
+    error_mm: u32,
 }
 
 /// 从受检 LFCA 构建，只保存交通裁决所需的站位列。
@@ -183,11 +251,11 @@ impl SharedStationMapping {
             .map(|i| &self.footprints[i])
     }
 
-    /// 读取边在行驶方向末端的规范切点站位，单位纳米。
+    /// 读取边在行驶方向末端的规范切点站位，单位毫米。
     #[must_use]
-    pub fn edge_end_station_nm(&self, edge: LaneEdgeOrdinal) -> Option<u64> {
+    pub fn edge_end_station_mm(&self, edge: LaneEdgeOrdinal) -> Option<u64> {
         let edge = self.edges.get(edge.index()).copied().flatten()?;
-        Some(edge.spans.slice(&self.segments).last()?.map.stations_nm()[1])
+        Some(edge.spans.slice(&self.segments).last()?.map.stations_mm()[1])
     }
 
     /// 由站位分段索引读取同一编制车道的物理前一边。车道起点没有前一边。
@@ -210,7 +278,7 @@ impl SharedStationMapping {
         self.domains.get(corridor.index()).copied().flatten()
     }
 
-    /// 查询走廊局部站位闭区间内的设施带边界。单截面以两个相同的纳米站位表示。
+    /// 查询走廊局部站位闭区间内的设施带边界。单截面以两个相同的毫米站位表示。
     /// 对已发布设施带按序号二分定位，沿走廊递增方向插值，返回向外取整的误差包络。
     /// 走廊或设施带未开放映射、归属不符、站位倒序或越界时返回空。
     #[must_use]
@@ -218,10 +286,10 @@ impl SharedStationMapping {
         &self,
         corridor: RoadCorridorOrdinal,
         band: FacilityBandOrdinal,
-        stations_nm: [u64; 2],
+        stations_mm: [u64; 2],
     ) -> Option<FacilityBandBounds> {
-        let length = self.corridor_domain(corridor)?.length_nm;
-        if stations_nm[0] > stations_nm[1] || stations_nm[1] > length {
+        let length = self.corridor_domain(corridor)?.length_mm();
+        if stations_mm[0] > stations_mm[1] || stations_mm[1] > length {
             return None;
         }
         let index = self.bands.binary_search_by_key(&band, |b| b.ordinal).ok()?;
@@ -230,22 +298,21 @@ impl SharedStationMapping {
             return None;
         }
         let bounds = |[start, end]: [i32; 2]| {
-            // 长度为 u64、横向端点为 i32 微米，分子的带符号纳米积可由 i128 完整容纳。
-            let values = stations_nm.map(|s| {
-                (i128::from(start) * i128::from(length - s) + i128::from(end) * i128::from(s))
-                    * 1_000
+            // 以毫米端点进行有理插值，负偏移的下界同样向负无穷取整。
+            let values = stations_mm.map(|s| {
+                i128::from(start) * i128::from(length - s) + i128::from(end) * i128::from(s)
             });
             let denominator = i128::from(length);
             let low = values[0].min(values[1]).div_euclid(denominator);
             let upper = values[0].max(values[1]);
             let high =
                 upper.div_euclid(denominator) + i128::from(upper.rem_euclid(denominator) != 0);
-            let error = i64::from(band.error_nm);
+            let error = i64::from(band.error_mm);
             [low as i64 - error, high as i64 + error]
         };
         Some(FacilityBandBounds {
-            left_nm: bounds(band.left_um),
-            right_nm: bounds(band.right_um),
+            left_mm: bounds(band.left_mm),
+            right_mm: bounds(band.right_mm),
         })
     }
 
@@ -257,7 +324,18 @@ impl SharedStationMapping {
         progress_mm: u32,
     ) -> StationObservation {
         match self.edges.get(edge.index()).copied().flatten() {
-            Some(source) => self.observe(source, progress_mm, &mut 64),
+            Some(source) => match self.observe(source, progress_mm, &mut 64) {
+                Observation::Complete(range) => StationObservation::Complete {
+                    corridor: self.lanes[source.lane.index()]
+                        .expect("validated mapping owner")
+                        .corridor,
+                    stations_mm: enclosing_mm(range),
+                },
+                Observation::Outside => StationObservation::Outside,
+                Observation::Unproven(range) => StationObservation::Unproven {
+                    unchecked_mm: enclosing_mm(range),
+                },
+            },
             None => StationObservation::Unavailable,
         }
     }
@@ -267,18 +345,32 @@ impl SharedStationMapping {
     pub fn at_station(
         &self,
         corridor: RoadCorridorOrdinal,
-        station_nm: u64,
+        station_mm: u64,
         target: AuthoringLaneOrdinal,
     ) -> StationQuery {
-        self.in_station_range(corridor, [station_nm; 2], target)
+        self.in_station_range(corridor, [station_mm; 2], target)
     }
 
-    /// 把走廊局部站位闭区间投影到一条车道，按行驶顺序返回各边及其毫米进度范围。
+    /// 把走廊局部毫米站位闭区间投影到一条车道，按行驶顺序返回各边及其毫米进度范围。
     /// 正反向车道均按站位从小到大传入两端。内切点归下游边，全链终点归末边。
     /// 区间倒序或部分越界返回 `Outside`，缺少同走廊映射返回 `Unavailable`。
     /// 超过 64 个分段或八条候选边时返回 `Unproven` 和未检查的站位区间。
     #[must_use]
     pub fn in_station_range(
+        &self,
+        corridor: RoadCorridorOrdinal,
+        stations_mm: [u64; 2],
+        target: AuthoringLaneOrdinal,
+    ) -> StationQuery {
+        // 饱和端点严格大于 MAX_DISTANCE_MM 所容许的最大换算结果，仍由覆盖域检查排除。
+        self.in_station_range_nm(
+            corridor,
+            stations_mm.map(|mm| mm.saturating_mul(NM_PER_MM)),
+            target,
+        )
+    }
+
+    fn in_station_range_nm(
         &self,
         corridor: RoadCorridorOrdinal,
         stations_nm: [u64; 2],
@@ -312,53 +404,43 @@ impl SharedStationMapping {
         }
         let mut budget = 64;
         match self.observe(source, progress_mm, &mut budget) {
-            StationObservation::Complete { stations_nm, .. } => {
-                self.project(lane, stations_nm, budget)
-            }
-            StationObservation::Unavailable => StationQuery::Unavailable,
-            StationObservation::Outside => StationQuery::Outside,
-            StationObservation::Unproven { unchecked_nm } => {
-                StationQuery::Unproven { unchecked_nm }
-            }
+            Observation::Complete(range) => self.project(lane, range, budget),
+            Observation::Outside => StationQuery::Outside,
+            Observation::Unproven(range) => StationQuery::Unproven {
+                unchecked_mm: enclosing_mm(range),
+            },
         }
     }
 
-    fn observe(&self, source: Edge, progress_mm: u32, budget: &mut u8) -> StationObservation {
+    fn observe(&self, source: Edge, progress_mm: u32, budget: &mut u8) -> Observation {
         if progress_mm > source.length_mm {
-            return StationObservation::Outside;
+            return Observation::Outside;
         }
-        let center = u64::from(progress_mm) * 1_000_000;
-        let radius = 500_000 + u64::from(StationSpan::MAX_CANONICAL_ERROR_NM);
+        let center = u64::from(progress_mm) * 2;
+        let radius = 1 + u64::from(StationSpan::MAX_CANONICAL_ERROR_MM) * 2;
         let spans = source.spans.slice(&self.segments);
         let start = first_matching_span(spans, |s| {
-            s.map.progress_nm()[1] < center.saturating_sub(radius)
+            s.map.progress_mm()[1] * 2 < center.saturating_sub(radius)
         });
         let mut range = [u64::MAX, 0];
         for segment in &spans[start..] {
-            if segment.map.progress_nm()[0] > center + radius {
+            if segment.map.progress_mm()[0] * 2 > center + radius {
                 break;
             }
             if *budget == 0 {
-                let a = segment.map.stations_nm()[0];
-                let b = spans[spans.len() - 1].map.stations_nm()[1];
-                return StationObservation::Unproven {
-                    unchecked_nm: [a.min(b), a.max(b)],
-                };
+                let a = segment.stations_nm()[0];
+                let b = spans[spans.len() - 1].stations_nm()[1];
+                return Observation::Unproven([a.min(b), a.max(b)]);
             }
             *budget -= 1;
-            if let Some([a, b]) = segment.map.stations_for_progress_mm(progress_mm) {
+            if let Some([a, b]) = segment.stations_for_progress_mm(progress_mm) {
                 range = [range[0].min(a), range[1].max(b)];
             }
         }
         if range[0] > range[1] {
-            return StationObservation::Outside;
+            return Observation::Outside;
         }
-        StationObservation::Complete {
-            corridor: self.lanes[source.lane.index()]
-                .expect("validated mapping owner")
-                .corridor,
-            stations_nm: range,
-        }
+        Observation::Complete(range)
     }
 
     fn project(&self, lane: Lane, stations: [u64; 2], mut budget: u8) -> StationQuery {
@@ -366,14 +448,14 @@ impl SharedStationMapping {
         let last = spans.len() - 1;
         let [lo, hi] = stations;
         let (entry, exit) = if lane.increasing { (lo, hi) } else { (hi, lo) };
-        let lane_start = spans[0].map.stations_nm()[0];
-        let lane_end = spans[last].map.stations_nm()[1];
+        let lane_start = spans[0].stations_nm()[0];
+        let lane_end = spans[last].stations_nm()[1];
         if lo > hi || lo < lane_start.min(lane_end) || hi > lane_start.max(lane_end) {
             return StationQuery::Outside;
         }
         // 同一边相邻分段在共同节点可登记不同误差，因此普通节点需覆盖两侧。
         let first = first_matching_span(spans, |s| {
-            let end = s.map.stations_nm()[1];
+            let end = s.stations_nm()[1];
             if lane.increasing {
                 end < entry
             } else {
@@ -386,7 +468,7 @@ impl SharedStationMapping {
             len: 0,
         };
         for (i, s) in spans.iter().enumerate().skip(first) {
-            let [a, b] = s.map.stations_nm();
+            let [a, b] = s.stations_nm();
             if (lane.increasing && a > exit) || (!lane.increasing && a < exit) {
                 break;
             }
@@ -395,7 +477,7 @@ impl SharedStationMapping {
             let end_edge = i == last || spans[i + 1].edge != s.edge;
             if budget == 0 {
                 return StationQuery::Unproven {
-                    unchecked_nm: if lane.increasing { [x, hi] } else { [lo, y] },
+                    unchecked_mm: enclosing_mm(if lane.increasing { [x, hi] } else { [lo, y] }),
                 };
             }
             budget -= 1;
@@ -405,14 +487,13 @@ impl SharedStationMapping {
             let edge = self.edges[s.edge.index()].expect("validated mapping owner");
             let length = u64::from(edge.length_mm);
             let bounds = |v| {
-                if v == a && s.map.progress_nm()[0] == 0 {
+                if v == a && s.map.progress_mm()[0] == 0 {
                     return [0, 0];
                 }
                 if v == b && end_edge && i == last {
                     return [length, length];
                 }
-                s.map
-                    .progress_mm_bounds_at(v)
+                s.progress_mm_bounds_at(v)
                     .expect("intersection is in segment")
                     .map(|p| p.min(length))
             };
@@ -421,8 +502,8 @@ impl SharedStationMapping {
             let mut high = bounds(end)[1];
             // 在精确拓扑端点，地址固定。含邻近内部站位时，保留单侧极限的误差包围。
             if begin != end {
-                low = low.min(s.map.progress_mm_bounds_at(begin).unwrap()[0].min(length));
-                high = high.max(s.map.progress_mm_bounds_at(end).unwrap()[1].min(length));
+                low = low.min(s.progress_mm_bounds_at(begin).unwrap()[0].min(length));
+                high = high.max(s.progress_mm_bounds_at(end).unwrap()[1].min(length));
             }
             let progress = [low as u32, high as u32];
             if let Some(Some(prev)) = found.len.checked_sub(1).map(|i| &mut found.addresses[i])
@@ -436,7 +517,7 @@ impl SharedStationMapping {
             }
             if found.len == found.addresses.len() {
                 return StationQuery::Unproven {
-                    unchecked_nm: if lane.increasing { [x, hi] } else { [lo, y] },
+                    unchecked_mm: enclosing_mm(if lane.increasing { [x, hi] } else { [lo, y] }),
                 };
             }
             found.addresses[found.len] = Some(StationAddress {
@@ -455,20 +536,19 @@ mod tests {
     fn mapping(edges: usize, each: usize, reverse: bool) -> (SharedStationMapping, Lane) {
         let corridor = RoadCorridorOrdinal::try_from_usize(0).unwrap();
         let lane = AuthoringLaneOrdinal::try_from_usize(0).unwrap();
-        let length = (edges * each) as u64 * 1_000_000;
+        let length = (edges * each) as u64;
         let mut segments = Vec::new();
         let mut owners = Vec::new();
         for edge in 0..edges {
             let id = LaneEdgeOrdinal::try_from_usize(edge).unwrap();
             let first = segments.len();
             for k in 0..each {
-                let station = (edge * each + k) as u64 * 1_000_000;
-                let s =
-                    [station, station + 1_000_000].map(|v| if reverse { length - v } else { v });
-                let p = k as u64 * 1_000_000;
+                let station = (edge * each + k) as u64;
+                let s = [station, station + 1].map(|v| if reverse { length - v } else { v });
+                let p = k as u64;
                 segments.push(Segment {
                     edge: id,
-                    map: StationSpan::try_new(s, [p, p + 1_000_000], 0, 0, 1_000_000).unwrap(),
+                    map: StationSpan::try_from_millimetres(s, [p, p + 1], 0, 0, 1_000_000).unwrap(),
                 });
             }
             owners.push(Some(Edge {
@@ -485,9 +565,9 @@ mod tests {
         (
             SharedStationMapping {
                 domains: vec![Some(StationDomain {
-                    origin_nm: 0,
-                    length_nm: length,
-                    origin_error_nm: 0,
+                    origin_mm: 0,
+                    length_mm: length,
+                    origin_error_mm: 0,
                 })]
                 .into(),
                 lanes: vec![Some(row)].into(),
@@ -506,7 +586,7 @@ mod tests {
             let (mut map, _) = mapping(3, 3, reverse);
             for (i, end_mm) in ends.into_iter().enumerate() {
                 let id = edge(i as u32);
-                assert_eq!(map.edge_end_station_nm(id), Some(end_mm * 1_000_000));
+                assert_eq!(map.edge_end_station_mm(id), Some(end_mm));
                 assert_eq!(
                     map.preceding_lane_edge(id),
                     i.checked_sub(1).map(|p| edge(p as u32))
@@ -518,7 +598,7 @@ mod tests {
             edges.push(None);
             map.edges = edges.into();
             for missing in [edge(3), edge(4)] {
-                assert_eq!(map.edge_end_station_nm(missing), None);
+                assert_eq!(map.edge_end_station_mm(missing), None);
                 assert_eq!(map.preceding_lane_edge(missing), None);
             }
         }
@@ -552,7 +632,7 @@ mod tests {
         }));
         map.edges = edges.into();
 
-        assert_eq!(map.edge_end_station_nm(first_on_second_lane), Some(0));
+        assert_eq!(map.edge_end_station_mm(first_on_second_lane), Some(0));
         assert_eq!(map.preceding_lane_edge(first_on_second_lane), None);
     }
 
@@ -561,7 +641,7 @@ mod tests {
         for reverse in [false, true] {
             for (edges, each, complete) in [(8, 8, true), (1, 65, false), (9, 1, false)] {
                 let (map, lane) = mapping(edges, each, reverse);
-                let end = (edges * each) as u64 * 1_000_000;
+                let end = (edges * each) as u64;
                 let result = map.in_station_range(
                     lane.corridor,
                     [0, end],
@@ -571,8 +651,8 @@ mod tests {
                     StationQuery::Complete(c) if complete => {
                         assert_eq!(c.addresses().count(), edges)
                     }
-                    StationQuery::Unproven { unchecked_nm } if !complete => {
-                        assert!(unchecked_nm[0] < unchecked_nm[1] && unchecked_nm[1] <= end)
+                    StationQuery::Unproven { unchecked_mm } if !complete => {
+                        assert!(unchecked_mm[0] < unchecked_mm[1] && unchecked_mm[1] <= end)
                     }
                     other => panic!("unexpected {other:?}"),
                 }
@@ -586,17 +666,13 @@ mod tests {
         for reverse in [false, true] {
             let (map, lane) = mapping(3, 3, reverse);
             // 沿行驶方向的 2 至 6 毫米含两个切点，终点刚进入第三条边。
-            let stations = if reverse {
-                [3_000_000, 7_000_000]
-            } else {
-                [2_000_000, 6_000_000]
-            };
+            let stations = if reverse { [3, 7] } else { [2, 6] };
             let StationQuery::Complete(candidates) =
                 map.in_station_range(lane.corridor, stations, target)
             else {
                 panic!("expected complete coverage");
             };
-            assert_eq!(candidates.stations_nm(), stations);
+            assert_eq!(candidates.stations_mm(), stations);
             let addresses: Vec<_> = candidates
                 .addresses()
                 .map(|a| (a.edge.raw(), a.progress_mm))
@@ -604,13 +680,13 @@ mod tests {
             assert_eq!(addresses, [(0, [2, 3]), (1, [0, 3]), (2, [0, 0])]);
 
             for (distance_mm, expected_edge, progress_mm) in [(0, 0, 0), (3, 1, 0), (9, 2, 3)] {
-                let station_nm = if reverse {
+                let station_mm = if reverse {
                     9 - distance_mm
                 } else {
                     distance_mm
-                } * 1_000_000;
-                let result = map.in_station_range(lane.corridor, [station_nm; 2], target);
-                assert_eq!(map.at_station(lane.corridor, station_nm, target), result);
+                };
+                let result = map.in_station_range(lane.corridor, [station_mm; 2], target);
+                assert_eq!(map.at_station(lane.corridor, station_mm, target), result);
                 let StationQuery::Complete(at) = result else {
                     panic!("expected exact point");
                 };
@@ -626,10 +702,76 @@ mod tests {
     }
 
     #[test]
+    fn outward_display_does_not_widen_the_proven_side_of_a_cut() {
+        use core::cmp::Ordering;
+        let cut = 3;
+        let nm = cut * NM_PER_MM;
+        let target = AuthoringLaneOrdinal::from_raw(0);
+        for reverse in [false, true] {
+            let (map, lane) = mapping(2, 3, reverse);
+            for (offset, relation, display, edge) in [
+                (nm - 1, Ordering::Less, [2, 3], usize::from(reverse)),
+                (nm, Ordering::Equal, [3, 3], 1),
+                (nm + 1, Ordering::Greater, [3, 4], usize::from(!reverse)),
+            ] {
+                let StationQuery::Complete(found) =
+                    map.in_station_range_nm(lane.corridor, [offset; 2], target)
+                else {
+                    panic!("missing projected address")
+                };
+                assert_eq!(found.stations_mm(), display);
+                assert_eq!(found.station_relation(cut), relation);
+                assert!(
+                    found
+                        .addresses()
+                        .map(|candidate| candidate.edge.index())
+                        .eq([edge])
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn inverse_observation_keeps_its_edge_when_the_millimetre_bound_reaches_a_cut() {
+        let source = LaneEdgeOrdinal::from_raw(0);
+        let target = AuthoringLaneOrdinal::from_raw(0);
+        for reverse in [false, true] {
+            let (map, lane) = mapping(2, 3, reverse);
+            // 源进度 2 毫米的反查离切点仍有半毫米，公开包络接触切点。
+            let bounds = if reverse { [3, 5] } else { [1, 3] };
+            assert_eq!(
+                map.stations_for_progress(source, 2),
+                StationObservation::Complete {
+                    corridor: lane.corridor,
+                    stations_mm: bounds,
+                }
+            );
+            let StationQuery::Complete(found) = map.from_progress(source, 2, target) else {
+                panic!("expected complete projection")
+            };
+            assert_eq!(found.stations_mm(), bounds);
+            assert_eq!(
+                found.station_relation(3),
+                if reverse {
+                    core::cmp::Ordering::Greater
+                } else {
+                    core::cmp::Ordering::Less
+                }
+            );
+            assert!(
+                found
+                    .addresses()
+                    .map(|candidate| candidate.edge)
+                    .eq([source])
+            );
+        }
+    }
+
+    #[test]
     fn station_range_rejects_reversed_or_outside_intervals_and_unmapped_targets() {
         let target = AuthoringLaneOrdinal::from_raw(0);
         let (map, lane) = mapping(2, 1, false);
-        for stations in [[1_000_000, 0], [0, 2_000_001], [u64::MAX; 2]] {
+        for stations in [[1, 0], [0, 3], [u64::MAX; 2]] {
             assert_eq!(
                 map.in_station_range(lane.corridor, stations, target),
                 StationQuery::Outside
@@ -655,9 +797,9 @@ mod tests {
         let retained = map.retained_logical_bytes();
         map.domains = vec![
             Some(StationDomain {
-                origin_nm: 50,
-                length_nm: 3,
-                origin_error_nm: 1,
+                origin_mm: 50,
+                length_mm: 3,
+                origin_error_mm: 1,
             });
             2
         ]
@@ -665,9 +807,9 @@ mod tests {
         map.bands = vec![Band {
             ordinal: band,
             corridor,
-            left_um: [2, 0],
-            right_um: [-2, 0],
-            error_nm: 7,
+            left_mm: [2, 0],
+            right_mm: [-2, 0],
+            error_mm: 1,
         }]
         .into();
         assert_eq!(
@@ -677,22 +819,22 @@ mod tests {
         assert_eq!(
             map.facility_band_bounds(corridor, band, [1, 1]),
             Some(FacilityBandBounds {
-                left_nm: [1_326, 1_341],
-                right_nm: [-1_341, -1_326],
+                left_mm: [0, 3],
+                right_mm: [-3, 0],
             })
         );
         assert_eq!(
             map.facility_band_bounds(corridor, band, [1, 2]),
             Some(FacilityBandBounds {
-                left_nm: [659, 1_341],
-                right_nm: [-1_341, -659],
+                left_mm: [-1, 3],
+                right_mm: [-3, 1],
             })
         );
         assert_eq!(
             map.facility_band_bounds(corridor, band, [3, 3]),
             Some(FacilityBandBounds {
-                left_nm: [-7, 7],
-                right_nm: [-7, 7],
+                left_mm: [-1, 1],
+                right_mm: [-1, 1],
             })
         );
         for (owner, id, stations) in [
@@ -706,66 +848,77 @@ mod tests {
     }
 
     #[test]
-    fn facility_band_interpolation_preserves_sub_nanometre_extrema_on_the_full_integer_domain() {
+    fn facility_band_interpolation_rounds_signed_bounds_outwards_on_the_full_domain() {
         let (mut map, lane) = mapping(1, 1, false);
         let corridor = lane.corridor;
         let band = FacilityBandOrdinal::from_raw(0);
-        map.domains[0].as_mut().unwrap().length_nm = u64::MAX;
+        let max_mm = u64::MAX / NM_PER_MM;
+        map.domains[0].as_mut().unwrap().length_mm = max_mm;
         map.bands = vec![Band {
             ordinal: band,
             corridor,
-            left_um: [i32::MAX, i32::MIN],
-            right_um: [i32::MIN; 2],
-            error_nm: 0,
+            left_mm: [i32::MAX, i32::MIN],
+            right_mm: [i32::MIN; 2],
+            error_mm: 0,
         }]
         .into();
-        let mid = u64::MAX / 2;
-        for (s, expected) in [(mid, [-500, -499]), (mid + 1, [-501, -500])] {
+        for (s, expected) in [
+            (0, [i64::from(i32::MAX); 2]),
+            (1, [i64::from(i32::MAX) - 1, i64::from(i32::MAX)]),
+            (max_mm / 2, [-1, 0]),
+            (max_mm - 1, [i64::from(i32::MIN), i64::from(i32::MIN) + 1]),
+        ] {
             let bounds = map.facility_band_bounds(corridor, band, [s, s]).unwrap();
-            assert_eq!(bounds.left_nm, expected);
-            assert_eq!(bounds.right_nm, [i64::from(i32::MIN) * 1_000; 2]);
+            assert_eq!(bounds.left_mm, expected);
+            assert_eq!(bounds.right_mm, [i64::from(i32::MIN); 2]);
         }
     }
 
     #[test]
     fn inverse_and_projection_spend_one_shared_budget() {
-        let target = AuthoringLaneOrdinal::try_from_usize(0).unwrap();
-        let source = LaneEdgeOrdinal::try_from_usize(0).unwrap();
+        // 源边一段，目标车道每毫米一段。源观测的误差覆盖全域，反查先用一项。
         for reverse in [false, true] {
-            for count in [32, 33, 64, 65] {
-                let (mut map, _) = mapping(1, count, reverse);
-                let end = count as u64 * 100_000;
-                for (i, seg) in map.segments.iter_mut().enumerate() {
-                    let p = [i as u64 * 100_000, (i as u64 + 1) * 100_000];
-                    let s = p.map(|v| if reverse { end - v } else { v });
-                    seg.map = StationSpan::try_new(
-                        s,
-                        p,
-                        StationSpan::MAX_CANONICAL_ERROR_NM,
-                        0,
-                        1_000_000,
-                    )
-                    .unwrap();
-                }
-                map.edges[0].as_mut().unwrap().length_mm =
-                    (end as f64 / 1e6).round_ties_even() as u32;
-                let observed = map.stations_for_progress(source, 0);
-                match observed {
-                    StationObservation::Complete { stations_nm, .. } if count <= 64 => {
-                        assert_eq!(stations_nm, [0, end])
+            for count in [63_usize, 64] {
+                let (mut map, lane) = mapping(1, count, reverse);
+                let source = LaneEdgeOrdinal::from_raw(1);
+                let source_lane = AuthoringLaneOrdinal::from_raw(1);
+                let source_range = RangeU32::new(count as u32, 1);
+                let endpoints = if reverse {
+                    [count as u64, 0]
+                } else {
+                    [0, count as u64]
+                };
+                let mut segments = map.segments.into_vec();
+                segments.push(Segment {
+                    edge: source,
+                    map: StationSpan::try_from_millimetres(endpoints, [0, 1], 1, 0, 10_000)
+                        .unwrap(),
+                });
+                map.segments = segments.into();
+                map.lanes = vec![
+                    Some(lane),
+                    Some(Lane {
+                        spans: source_range,
+                        ..lane
+                    }),
+                ]
+                .into();
+                let mut edges = map.edges.into_vec();
+                edges.push(Some(Edge {
+                    lane: source_lane,
+                    length_mm: 1,
+                    spans: source_range,
+                }));
+                map.edges = edges.into();
+                assert_eq!(
+                    map.stations_for_progress(source, 0),
+                    StationObservation::Complete {
+                        corridor: lane.corridor,
+                        stations_mm: [0, count as u64],
                     }
-                    StationObservation::Unproven { unchecked_nm } if count == 65 => assert_eq!(
-                        unchecked_nm,
-                        if reverse {
-                            [0, 100_000]
-                        } else {
-                            [end - 100_000, end]
-                        }
-                    ),
-                    other => panic!("unexpected source result {other:?}"),
-                }
-                let result = map.from_progress(source, 0, target);
-                if count == 32 {
+                );
+                let result = map.from_progress(source, 0, AuthoringLaneOrdinal::from_raw(0));
+                if count == 63 {
                     assert!(matches!(result, StationQuery::Complete(_)));
                 } else {
                     assert!(matches!(result, StationQuery::Unproven { .. }));
@@ -779,7 +932,7 @@ mod tests {
         let (map, lane) = mapping(2, 128, false);
         let l = AuthoringLaneOrdinal::try_from_usize(0).unwrap();
         let e = LaneEdgeOrdinal::try_from_usize(0).unwrap();
-        let StationQuery::Complete(at) = map.at_station(lane.corridor, 128_000_000, l) else {
+        let StationQuery::Complete(at) = map.at_station(lane.corridor, 128, l) else {
             panic!()
         };
         assert_eq!(

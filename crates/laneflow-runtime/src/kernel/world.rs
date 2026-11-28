@@ -251,6 +251,13 @@ struct UnparkedVehicleAuthority {
     waiting_membership: Option<crate::WaitingMembership>,
 }
 
+/// 换道记录依赖完整的车辆映射。私有恢复世界在得到双侧占用后统一核验车身重叠。
+#[derive(Clone, Copy, Default)]
+pub(crate) struct RestoreAdmission {
+    pub(crate) conflict_authority: bool,
+    pub(crate) defer_overlap: bool,
+}
+
 /// 预检并行段数上限；栈上布尔数组，不分配。
 const PREFLIGHT_MAX_PARTS: usize = 256;
 
@@ -390,9 +397,9 @@ impl crate::kernel::state::WorldState {
                 world_generation,
                 config,
                 policy_binding,
-                transition_cost: crate::kernel::transition_cost::Recorder::new(),
             },
             committed: crate::kernel::state::CommittedWorldState {
+                handoffs: Vec::new(),
                 conflict,
                 conflict_eligibility: conflict_eligibility.into(),
                 latest_conflict_decisions,
@@ -416,6 +423,7 @@ impl crate::kernel::state::WorldState {
                 latest_transition_events,
             },
             derived: crate::kernel::state::DerivedIndexes {
+                handoff_plans: Vec::new(),
                 conflict: conflict_indexes,
                 active_order,
                 live_order_index: Default::default(),
@@ -515,8 +523,6 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
-    ///
-    /// 过渡资源格（`Transition`）返回 `None`（#1217 归属≠身份切断）。
     #[must_use]
     pub fn conflict_passage_locator(
         &self,
@@ -898,6 +904,31 @@ impl crate::kernel::state::WorldState {
             .reservation_downstream_claim_plan(range, vehicle_length_mm)
     }
 
+    /// 从车辆保留的授权终点重建计划，并验证单车下界和下一未授权 Gate 上界。
+    pub(crate) fn reservation_downstream_claim_plan_to(
+        &self,
+        range: crate::ConflictPassageRange,
+        vehicle_length_mm: u32,
+        target: crate::DownstreamRoutePoint,
+    ) -> Result<ReservationDownstreamClaimPlan, ConflictAcquireError> {
+        let single = self.reservation_downstream_claim_plan(range, vehicle_length_mm)?;
+        let compiled = self
+            .compiled_route(range.route())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let next = compiled
+            .gate_hops
+            .partition_point(|&hop| hop <= range.admission_gate_hop());
+        Ok(ReservationDownstreamClaimPlan {
+            route: range.route(),
+            plan: single.plan.with_authorized_target(
+                &compiled.edges,
+                self.binding.revision.traffic().lane_lengths_millimetres(),
+                compiled.gate_hops.get(next).copied(),
+                target,
+            )?,
+        })
+    }
+
     /// 使用调用方已经按资源轴预留的 scratch 填充 downstream 物理资源并集。
     pub(crate) fn derive_reservation_downstream_claims_from_plan(
         &self,
@@ -1014,7 +1045,7 @@ impl crate::kernel::state::WorldState {
     /// `RouteError::CommandCursorExhausted`）、路线/边出现记录/冲突出现记录容量不足
     /// 或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
-        self.register_route_edges(input.edges())
+        self.register_route_occurrences(input.edges(), input.handoffs())
     }
 
     /// 所有路线入口共用的规范注册路径。容量预检发生在 compiled O(n) 分配前。
@@ -1022,18 +1053,31 @@ impl crate::kernel::state::WorldState {
         &mut self,
         edges: &[laneflow_static_contract::LaneEdgeOrdinal],
     ) -> Result<RouteHandle, RouteError> {
+        self.register_route_occurrences(edges, &[])
+    }
+
+    pub(crate) fn register_route_occurrences(
+        &mut self,
+        edges: &[LaneEdgeOrdinal],
+        handoffs: &[crate::RouteHandoffOccurrence],
+    ) -> Result<RouteHandle, RouteError> {
         let next_occurrence_count = self.preflight_route_registration(edges.len())?;
         let next_command_cursor = self
             .committed
             .command_cursor
             .checked_add(1)
             .expect("route preflight guarantees command cursor room");
-        let compiled = compile_route(
-            self.binding.revision.as_ref(),
-            edges,
-            self.committed.live_route_conflict_occurrence_count,
-            self.binding.config.route_conflict_occurrence_capacity(),
-        )?;
+        let revision = self.binding.revision.as_ref();
+        let current = self.committed.live_route_conflict_occurrence_count;
+        let capacity = self.binding.config.route_conflict_occurrence_capacity();
+        let compiled = if handoffs.is_empty() {
+            compile_route(revision, edges, current, capacity)?
+        } else {
+            if self.binding.config.handoff_driving().is_none() {
+                return Err(RouteError::HandoffDisabled);
+            }
+            CompiledRoute::compile_handoffs(revision, edges, handoffs, current, capacity)?
+        };
         let added_conflict_occurrences =
             u64::try_from(compiled.conflicts.len()).expect("conflict occurrence count fits u64");
         let next_conflict_occurrence_count = self
@@ -1075,7 +1119,7 @@ impl crate::kernel::state::WorldState {
         self.committed.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
         self.committed.command_cursor = next_command_cursor;
         if let Some(journal) = self.admin.migration_journal.as_mut() {
-            journal.record_route_registered(next_command_cursor, handle, edges);
+            journal.record_route_registered(next_command_cursor, handle, edges, handoffs);
         }
         Ok(handle)
     }
@@ -1237,7 +1281,7 @@ impl crate::kernel::state::WorldState {
             0,
             VehicleStatus::Active,
             None,
-            false,
+            RestoreAdmission::default(),
             admit_motion,
         )?;
         let update_sequence = u32::try_from(self.committed.live_order.len())
@@ -1283,19 +1327,14 @@ impl crate::kernel::state::WorldState {
         );
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
         self.note_inserted_vehicle(handle, previous_sequence, update_sequence);
-        // 迁移日志入口级拒绝（#1217 D4）：增量只在日志武装时物化；无法忠实
-        // 编码的过渡态粘性终止日志，不得让 `from_state` 触发 panic。
         if self.admin.migration_journal.is_some() {
             let compiled = self.compiled_route(state.route);
-            if VehicleDelta::journalable(&state, compiled) {
-                let delta = VehicleDelta::from_state(&state, compiled);
+            if let Some(delta) = VehicleDelta::from_state(&state, compiled) {
                 if let Some(journal) = self.admin.migration_journal.as_mut() {
                     journal.record_vehicle_spawned(next_command_cursor, delta);
                 }
             } else if let Some(journal) = self.admin.migration_journal.as_mut() {
-                journal.refuse_unsupported_transition_state(
-                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
-                );
+                journal.refuse_invalid_vehicle(state.handle().index());
             }
         }
         self.workspace
@@ -1313,7 +1352,7 @@ impl crate::kernel::state::WorldState {
         status: VehicleStatus,
         maneuver_traversal: Option<crate::ManeuverTraversalState>,
         waiting_membership: Option<crate::WaitingMembership>,
-        restored_conflict_authority: bool,
+        admission: RestoreAdmission,
     ) -> Result<VehicleHandle, SpawnError> {
         debug_assert!(matches!(
             status,
@@ -1324,7 +1363,7 @@ impl crate::kernel::state::WorldState {
             carry_um,
             status,
             Some(maneuver_traversal),
-            restored_conflict_authority,
+            admission,
             false,
         )?;
         let authority = UnparkedVehicleAuthority {
@@ -1353,7 +1392,7 @@ impl crate::kernel::state::WorldState {
         carry_um: u16,
         status: VehicleStatus,
         restored_traversal: Option<Option<crate::ManeuverTraversalState>>,
-        restored_conflict_authority: bool,
+        admission: RestoreAdmission,
         check_departure: bool,
     ) -> Result<
         (
@@ -1438,13 +1477,17 @@ impl crate::kernel::state::WorldState {
             }
         }
         if status == VehicleStatus::Active {
-            if self.yield_overlap_refresh() {
-                // 让出的结果不会返回给调用方。
-                return Err(SpawnError::Overlap);
-            }
-            if self
-                .overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
-                .is_some()
+            if !admission.defer_overlap
+                && (self.yield_overlap_refresh()
+                    || self
+                        .placement_overlap_blocker(
+                            input.route(),
+                            cursor,
+                            input.progress_mm(),
+                            vehicle_length,
+                        )
+                        .map_err(|_| SpawnError::OccupancyAllocFailed)?
+                        .is_some())
             {
                 return Err(SpawnError::Overlap);
             }
@@ -1459,7 +1502,8 @@ impl crate::kernel::state::WorldState {
                 Err(ConflictCapabilityError::InvalidCursor) => {
                     return Err(SpawnError::InvalidProgress);
                 }
-                Err(ConflictCapabilityError::AuthorityRequired) if restored_conflict_authority => {}
+                Err(ConflictCapabilityError::AuthorityRequired) if admission.conflict_authority => {
+                }
                 Err(ConflictCapabilityError::AuthorityRequired) => {
                     return Err(SpawnError::ConflictAuthorityRequired);
                 }
@@ -1641,8 +1685,9 @@ impl crate::kernel::state::WorldState {
             // 让出的结果不会返回给调用方。
             return Err(ReplaceError::OccupancyAllocFailed);
         }
-        if let Some(blocker) =
-            self.overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
+        if let Some(blocker) = self
+            .placement_overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
+            .map_err(|_| ReplaceError::OccupancyAllocFailed)?
         {
             let (blocker_ahead, bumper_gap) = self.overlap_relation(
                 input.route(),
@@ -1789,12 +1834,9 @@ impl crate::kernel::state::WorldState {
         let new_state = self
             .vehicle_state(new)
             .expect("freshly committed replacement vehicle");
-        // 迁移日志入口级拒绝（#1217 D4）：替换可携带 T-`Clearing` 遍历，
-        // 增量只在日志武装时物化；无法忠实编码时粘性终止日志。
         if self.admin.migration_journal.is_some() {
             let compiled = self.compiled_route(new_state.route);
-            if VehicleDelta::journalable(&new_state, compiled) {
-                let new_delta = VehicleDelta::from_state(&new_state, compiled);
+            if let Some(new_delta) = VehicleDelta::from_state(&new_state, compiled) {
                 if let Some(journal) = self.admin.migration_journal.as_mut() {
                     journal.record_vehicle_replaced(
                         next_command_cursor,
@@ -1804,9 +1846,7 @@ impl crate::kernel::state::WorldState {
                     );
                 }
             } else if let Some(journal) = self.admin.migration_journal.as_mut() {
-                journal.refuse_unsupported_transition_state(
-                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
-                );
+                journal.refuse_invalid_vehicle(new_state.handle().index());
             }
         }
         self.workspace.frontier_maintenance.note_active_source(new);
@@ -2370,9 +2410,6 @@ impl TrafficWorld {
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
     ///
-    /// 过渡资源格（`Transition`）返回 `None`（#1217 归属≠身份切断：其归属派生
-    /// 对不是身份本体，v7 也表达不了资源种类与 T 稳定边身份）。
-    ///
     /// # Panics
     ///
     /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
@@ -2797,8 +2834,7 @@ impl TrafficWorld {
     #[cfg(feature = "execution-evidence")]
     pub fn take_execution_evidence(&mut self) -> crate::ExecutionEvidence {
         self.execution.assert_usable();
-        self.execution
-            .take_evidence(&self.state.binding.transition_cost)
+        self.execution.take_evidence()
     }
 
     /// 当前资源账快照；遍历全部自有存储，开销与世界规模成正比。
@@ -3004,6 +3040,20 @@ impl TrafficWorld {
         self.state.route_edges(route)
     }
 
+    /// 已登记路线的窗口，按源出现下标严格升序。有效普通路线返回空切片。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic。
+    #[must_use]
+    pub fn route_handoff_windows(
+        &self,
+        route: RouteHandle,
+    ) -> Option<&[(u32, laneflow_static_network::vehicle::HandoffBinding)]> {
+        self.execution.assert_usable();
+        Some(self.state.compiled_route(route)?.handoff_windows())
+    }
+
     /// 本世界当前有效路线句柄，按槽位下标。
     ///
     /// # Panics
@@ -3041,10 +3091,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
     ///
-    /// 归属≠身份（#1217 P1-4 切断）：过渡资源格（`Transition`）没有忠实的
-    /// 持久 locator——v7 的 `(stream, zone)` 对表达不了资源种类与 T 稳定边
-    /// 身份，且其 stream passage 派生对只是**归属**、不是身份本体，串成静态
-    /// passage 身份即错绑。因此固定过渡资源格一律返回 `None`，由调用方按持久化边界拒绝。
+    /// 地址需属于当前世界的已安装路口仲裁器。
     #[must_use]
     pub(crate) fn conflict_passage_locator(
         self,
@@ -3053,7 +3100,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if !self.conflict_read().contains_address(address) {
             return None;
         }
-        let zone = address.static_zone()?;
+        let zone = address.zone();
         Some(crate::ConflictPassageLocator::new(
             self.binding
                 .revision
@@ -3077,25 +3124,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let occurrence = *compiled
             .conflicts
             .get(usize::try_from(conflict_occurrence_index).ok()?)?;
-        // T 出现记录 locator（#1199）：locator 语义=passage 身份 (stream, zone)
-        // （conflict.rs 文档义，与资源种类无关）——Transition 资源格无
-        // static_zone，经其 stream passage 取 (stream, zone) 稳定对（零格式
-        // 变化：locator 类型与持久形制不动）。
-        let zone = occurrence.static_zone().or_else(|| {
-            self.binding
-                .revision
-                .conflict()
-                .participant_stream(occurrence.stream)?
-                .passages()
-                .get(usize::try_from(occurrence.passage_local_index).ok()?)
-                .map(|passage| passage.conflict_zone())
-        })?;
         let stable_locator = crate::ConflictPassageLocator::new(
             self.binding
                 .revision
                 .identity()
                 .stable_id(occurrence.stream)?,
-            self.binding.revision.identity().stable_id(zone)?,
+            self.binding
+                .revision
+                .identity()
+                .stable_id(occurrence.zone)?,
         );
         compiled.conflict_occurrence_locator(route, conflict_occurrence_index, stable_locator)
     }

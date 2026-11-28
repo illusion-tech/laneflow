@@ -52,8 +52,8 @@ related = ["adr-0019", "design-parking-system", "design-signal-system", "design-
 - `ParkingBinding`、reserve/park/leave/rebind/despawn 生命周期已存在；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict
   Gate ranges、正式组合仲裁及 lifecycle/restore/cutover authority 检查已存在；
-- 当前实现使用 LFRS 7、runtime state 5、deterministic digest 8。§6.11 的预约终点
-  与任意位置换道的登记窗口、已提交横移及组合预约一同进入目标格式，字段见 `traffic-runtime-snapshot.md` §2.1。
+- 当前实现使用 LFRS 8、runtime state 6、deterministic digest 9。§6.11 的预约终点
+  与任意位置换道的登记窗口、已提交横移及组合预约一同入档，字段见 `traffic-runtime-snapshot.md` §2.1。
 
 #282 只新增 WaitingZone 本地动态能力。#284 已将 Conflict/right-of-way 组合资源、
 持久状态和生产固定步进接入同一 `TrafficWorld`。
@@ -534,8 +534,8 @@ downstreamClearanceAvailable =
   AND tryClaim(clearanceSpan) against committed + earlier staged owners
 ```
 
-比较复用规范 integer route position 与 segmented distance，不恢复米制 tolerance：target
-相等通过，提前 1 `carry_um` 失败。coverage 有多个 passages 时取 route order 最远
+比较使用规范的路线出现位置与分段距离。target 位于整数毫米处，存储上界向下取整后
+等于 target 即通过，仍在前一个毫米就拒绝。coverage 有多个 passages 时取 route order 最远
 clearance。next Gate 当前即使 allow 也仍是 boundary；一个 grant 不预借后续 Gate。
 
 `clearanceSpan` 从本 Gate crossed side 贯穿全部 coverage 到
@@ -788,7 +788,7 @@ frontier cells。warm-up 后 steady tick 零 heap allocation。
   增长不增加 static cell count；
 - lead strict equality 拒绝、lead +1 ms、lag equality 接受、post-step last-clear time、
   protected/permissive/uncontrolled；
-- downstream target equality/提前 1 `carry_um`、variable length/minimum gap、next Gate/
+- downstream target 所在毫米及前一毫米的不同运动余数、variable length/minimum gap、next Gate/
   RouteEnd/ParkingStop、跨 Route/Junction physical span conflict 与 disjoint span；
 - bundle all-or-nothing、相反 Waiting route order、committed/earlier staged visibility、
   zone-local entitlement 不受 policy priority 覆盖、prospective wait-for SCC rejection、
@@ -856,8 +856,9 @@ frontier cells。warm-up 后 steady tick 零 heap allocation。
   （`vehicle-following.md` §10.3）内参与停止归约，并负
   `traffic-runtime-integer-geometry.md` §5.1 的保持义务；截断源取得授权、离开或法规
   决定变为拒绝后，事实随之失效；
-- 拍初按紧急减速度已不可在该 Gate 前停车的车辆不受截断，按未截断求值，不制造具名
-  投影。制动前视窗约为舒适全停距离的两倍，截断事实存在期间进入窗口的车辆在进入时
+- 拍初按整数几何 §5.1 的连续紧急停车距离判断：距离等于 Gate 的剩余整数毫米时仍须
+  截断，只有严格超出时才豁免。此处读取拍初速度与车型紧急减速度，位移积分余数由离散
+  运动提交处理。制动前视窗约为舒适全停距离的两倍，截断事实存在期间进入窗口的车辆在进入时
   舒适可停，此后由保持义务维持可停，不会转为不可停；因此豁免只落在事实出现之拍已处于
   紧急停车距离内的有限车辆上，后续车辆不会逐辆重新取得豁免。该判定逐拍从已提交状态
   求值，不保存事实出现的时刻。
@@ -885,7 +886,7 @@ stackFront(m_i) = advance(F, Σ_{j=i..k+1} length(m_j) + Σ_{j=i+1..k+1} minimum
 - **成员自身硬边界**：对每个 `i = 1 … k+1`，`m_i` 的 next 未获准 ManeuverGate、
   RouteEnd、ParkingStop、Waiting 与其他已提交硬边界都不早于 `stackFront(m_i)`。成员已
   到达预约停车入口而保持 `Active + Reserved + Arrived` 时，其停车位置就是硬边界；
-- 比较规则、等值通过与少 1 `carry_um` 失败均与 §6.6 相同。
+- 比较按 §6.6 使用整数毫米终点，恰好到达时通过。
 
 跟入候选的 `clearanceSpan` 从 Gate crossed side 贯穿 coverage 到 `stackFrontTarget`；
 `tryClaim` 时与同一跟入链成员的 claim 重叠不构成冲突，与其他 owner 的规则不变。
@@ -999,7 +1000,7 @@ clearance 只结束本车的冲突占用；已退出跟入链的车辆，只要�
    过程一致，单拍速度降幅满足 `traffic-runtime-integer-geometry.md` §5 的
    `b_e·Δt + ε_v`；
 6. **空间证明**：不同 `minimumGap` 的车队遇到下游静止的链外车辆；链首或中间成员有
-   独立停车目标或路线分叉；叠放需求等值通过、少 1 `carry_um` 失败；链外 merge 被
+   独立停车目标或路线分叉；叠放需求等值通过、少一毫米失败；链外 merge 被
    叠放 claim 阻挡；在腾让义务位置之前引入硬边界的生命周期命令被拒绝，包括已驶过
    冲突区、退出链但尚未为后车腾出空间的前车；义务未兑现时使路线区段与后车分离的
    重绑被拒绝；
@@ -1014,7 +1015,7 @@ clearance 只结束本车的冲突占用；已退出跟入链的车辆，只要�
 两车与三车得到相同物理并集但不同终点；`A → B → A → B → A` 上的第三次出现；
 合法前缀裁剪使下标平移与未兑现义务处提前分叉的原子拒绝。前车清空或移除后，在仅有
 后车预约时做 capture → restore → capture，核对终点、重建账本与摘要，再验证后续命令。
-少一微米的空间边界、非规范终点、早于单车终点、越过 Gate、投影与热账本不符，以及
+少一毫米的空间边界、非规范终点、早于单车终点、越过 Gate、投影与热账本不符，以及
 跨修订边序错配分别注入对应入口验证失败原子性。
 
 在线切换验收从已预约停车目标、过 Gate 后仍持有自身冲突预约的车辆开始。在 Prepare

@@ -67,6 +67,13 @@ impl VehicleState {
         self.progress_mm
     }
 
+    /// 前杠在当前边上的最近整毫米。恰好半毫米时取偶数，适用于横移入口比对。
+    #[must_use]
+    pub const fn rounded_front_progress_mm(self) -> u32 {
+        let round_up = self.carry_um > 500 || self.carry_um == 500 && self.progress_mm % 2 == 1;
+        self.progress_mm.saturating_add(round_up as u32)
+    }
+
     /// 未凑满 1 mm 的微米余数。
     #[must_use]
     pub const fn carry_um(self) -> u16 {
@@ -124,4 +131,24 @@ pub struct VehicleReplaceBlock {
     pub blocker_ahead: bool,
     /// 相对前保险杠的间隙（毫米）；无法判定前后时为 `0`。
     pub bumper_gap: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn front_progress_rounds_half_millimetres_to_even() {
+        let world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let mut car = world.vehicle(world.live_vehicles()[0]).unwrap();
+        for (progress, carry, expected) in [
+            (10, 499, 10),
+            (10, 500, 10),
+            (10, 501, 11),
+            (11, 500, 12),
+            (u32::MAX, 999, u32::MAX),
+        ] {
+            car.progress_mm = progress;
+            car.carry_um = carry;
+            assert_eq!(car.rounded_front_progress_mm(), expected);
+        }
+    }
 }

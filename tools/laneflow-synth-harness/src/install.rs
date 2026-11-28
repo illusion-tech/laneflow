@@ -13,15 +13,11 @@ pub(crate) struct Sample {
     pub routes: Vec<RouteHandle>,
     pub groups: Vec<Option<SignalGroupOrdinal>>,
     pub gates: Vec<Option<ManeuverGateOrdinal>>,
-    /// L 族首个换道簇路线下标（`None` 为 W 族）；簇路线无信号门。
+    /// L1 横移路线下标；首个下标用于区分 W、L 两种观测。
     pub lane_change_route: Option<usize>,
-    /// L 族全部换道簇路线下标（多簇，#1233）；与 `lane_change_route` 同步。
     pub lane_change_routes: Vec<usize>,
-    /// L 族换道预约生命周期史（#1218 面 B 身份投影）：
-    /// `(tick, 换道者槽位, 事件种类, 资源身份)`，事件序保持。
+    /// (拍号，逻辑槽位，横移阶段，路线下标)；进入、交接、清空为 10、11、12。
     pub lane_change_journal: Vec<(u64, u16, u32, u32)>,
-    /// L1 观测跨拍生命周期序（#1227）：按换道者槽位记录最近一次生命周期事件
-    /// 种类（4 acquire / 5 enter / 6 clear / 7 release），跨观测调用持续。
     pub lane_change_last_kind: Vec<u32>,
     /// 逐路线位置前缀和（毫米，含起点 0 与终点）：L 族边长非均匀，位置编码
     /// 由真实边长累计（W 族恒为 `EDGE_MM` 网格，不使用本表）。
@@ -187,6 +183,19 @@ pub(crate) fn validate_w_corridor_binding(
 }
 
 impl Sample {
+    pub(crate) fn step(&mut self, input: TickInput) -> Result<StepOutcome, Error> {
+        let tick = self.world.tick_index().saturating_add(1);
+        let result = if self.lane_change_route.is_some() {
+            let requests =
+                crate::handoff::requests(&self.world, &self.state, &self.handles, &self.routes)
+                    .map_err(Error::Invalid)?;
+            self.world.step_with_route_handoffs(input, &requests)
+        } else {
+            self.world.step(input)
+        };
+        result.map_err(|error| failure(&format!("step {tick}"), error))
+    }
+
     pub fn new(bundle: &Bundle, execution: ExecutionConfig) -> Result<Self, Error> {
         let input = check_canonical_network_input(
             bundle.files()["network.lfca"].as_slice(),
@@ -212,13 +221,11 @@ impl Sample {
             origin.network_revision(),
         )
         .map_err(|e| failure("source", e))?;
-        // 换道族路线（>2 边）可能为多簇（#1233）：保留首簇下标供单簇语义路径，
-        // 同时给出全部簇下标用于生成开放入口。
         let lane_change_routes: Vec<usize> = state
             .routes
             .iter()
             .enumerate()
-            .filter(|(_, route)| route.edge_ids.len() > 2)
+            .filter(|(_, route)| route.handoff.is_some())
             .map(|(index, _)| index)
             .collect();
         let lane_change_route = lane_change_routes.first().copied();
@@ -241,18 +248,6 @@ impl Sample {
         let mut groups = Vec::new();
         let mut gates = Vec::new();
         for route in &state.routes {
-            let edges = route
-                .edge_ids
-                .iter()
-                .map(|id| {
-                    let id = id
-                        .parse::<LaneEdgeId>()
-                        .map_err(|e| failure("edge id", e))?;
-                    identity
-                        .ordinal(id)
-                        .ok_or_else(|| failure("edge", "missing"))
-                })
-                .collect::<Result<Vec<_>, Error>>()?;
             let (group, gate) = match &route.signal_group_id {
                 Some(group_id) => {
                     let group = identity
@@ -276,11 +271,7 @@ impl Sample {
                 None => (None, None),
             };
             gates.push(gate);
-            routes.push(
-                world
-                    .register_route(RouteRegisterInput::new(edges))
-                    .map_err(|e| failure("route", e))?,
-            );
+            routes.push(crate::handoff::register_route(&mut world, route).map_err(Error::Invalid)?);
             groups.push(group);
         }
         let mut handles = Vec::new();
@@ -297,7 +288,7 @@ impl Sample {
                 );
                 world
                     .spawn_vehicle(if on_lane_change_route {
-                        // 换道者车尾可越过路线起点（R1b 钉版后车 e0@3000）。
+                        // 两侧换道者沿各自源车道的开放入口装载。
                         spawn.with_open_entrance()
                     } else {
                         spawn
@@ -391,9 +382,7 @@ impl Sample {
     }
 }
 
-/// 世界容量（#1218 L 族适配）：L 族车辆容量含两换道者、边出现记录按路线实长累计、
-/// 冲突出现记录预算 16（换道簇 T 出现记录）；W 族恒为（规模、路线数×2、0），逐字保持。
-/// 恢复重建必须与安装同式（否则 `restore_lfrs` 容量校验拒绝）。
+/// 按人口与路线出现数为安装和恢复设置相同容量，L1 路线另含下游路口。
 pub(crate) fn world_config(state: &InitialState) -> Result<WorldConfig, Error> {
     let mut input = WorldConfigInput {
         vehicle_capacity: state.identity.scale,
@@ -405,7 +394,7 @@ pub(crate) fn world_config(state: &InitialState) -> Result<WorldConfig, Error> {
     let cluster_routes = state
         .routes
         .iter()
-        .filter(|route| route.edge_ids.len() > 2)
+        .filter(|route| route.handoff.is_some())
         .count() as u64;
     if cluster_routes > 0 {
         input.vehicle_capacity = state.vehicles.len() as u32;
@@ -414,11 +403,11 @@ pub(crate) fn world_config(state: &InitialState) -> Result<WorldConfig, Error> {
             .iter()
             .map(|route| route.edge_ids.len() as u64)
             .sum();
-        // 每簇路线注册 2 个冲突出现记录；容量进入快照摘要，保留历史下界
-        // 16（#1233：c1/c4 既有证据不变，16 簇起按需扩展）。
+        // 每条动态路线经过同一簇的下游路口。
         input.route_conflict_occurrence_capacity = cluster_routes.saturating_mul(2).max(16);
     }
-    WorldConfig::try_new(input).map_err(|error| failure("world config", error))
+    let config = WorldConfig::try_new(input).map_err(|error| failure("world config", error))?;
+    crate::handoff::configure_world(state, config).map_err(Error::Invalid)
 }
 
 /// 逐路线真实边长前缀和（毫米）：位置编码不假设边长均匀（#1218 L 族）。

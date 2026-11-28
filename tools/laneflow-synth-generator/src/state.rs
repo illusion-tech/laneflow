@@ -2,7 +2,7 @@ use laneflow_compiler::derive_canonical_stable_id_v1;
 use laneflow_static_contract::EntityKind;
 use serde::{Deserialize, Serialize};
 
-use crate::network_lane_change::{LC_EDIT_NAMESPACE, LC_ROUTE, cluster_key};
+use crate::network_lane_change::{LC_EDIT_NAMESPACE, LC_ROUTES, cluster_key};
 use crate::{Case, Error, Identity, NAMESPACE, POLICY_KEY, compile_error, key};
 
 /// 由稳定标识引用静态实体的初始状态目录。
@@ -13,8 +13,42 @@ pub struct InitialState {
     pub identity: Identity,
     pub policy_id: String,
     pub vehicle_profile_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff_driving: Option<HandoffDrivingInput>,
     pub routes: Vec<RouteRecord>,
     pub vehicles: Vec<VehicleRecord>,
+}
+
+/// 场景给定的净空限速曲线及几何求证设置。
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HandoffDrivingInput {
+    /// 点的两项依次为净空毫米及速度上限毫米每秒。
+    pub curve: Vec<[u32; 2]>,
+    /// 净空限速段的最大有向站位跨度。
+    pub max_span_mm: u32,
+    /// 后轴三维行程求界的容差。
+    pub travel_tolerance_mm: u32,
+}
+
+/// 已注册的路线出现、共边，以及首拍申请的候选。所有站位均为走廊毫米。
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HandoffInput {
+    /// LFCA 发布的区段稳定标识。
+    pub section_id: String,
+    /// 共边左侧车道在该区段有序成员中的下标。
+    pub left_index: u32,
+    /// 本路线中交接源边的出现下标。
+    pub source_index: u32,
+    /// 允许前杠交接的站位闭区间。
+    pub stations_mm: [u64; 2],
+    /// 整个候选车体可以投影的站位闭区间。
+    pub station_window_mm: [u64; 2],
+    /// 出生时的后轴起、止站位，重试时按本车已行距离平移。
+    pub rear_stations_mm: [u64; 2],
+    /// 转向速率与制动求证使用的最高速度。
+    pub speed_mm_s: u32,
 }
 
 /// 路线的有向 edge 序列；数组顺序就是 occurrence 顺序。
@@ -27,6 +61,8 @@ pub struct RouteRecord {
     pub edge_ids: Vec<String>,
     /// 有信号 Gate 的路线携带信号组稳定标识；无信号准入路线为 `None`（L 族）。
     pub signal_group_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff: Option<HandoffInput>,
 }
 
 /// logical rank 独立于 Runtime handle；progress 是 edge progress，单位毫米。
@@ -58,7 +94,10 @@ pub(crate) fn stable_id_in(
     Ok(format!("lfid1_{}_{id:x}", kind.slug()))
 }
 
-pub(crate) fn initial_state(identity: &Identity) -> Result<InitialState, Error> {
+pub(crate) fn initial_state(
+    identity: &Identity,
+    section_ids: &[String],
+) -> Result<InitialState, Error> {
     let mut routes = Vec::new();
     let mut vehicles = Vec::new();
     for cell in 0..identity.cells() {
@@ -72,6 +111,7 @@ pub(crate) fn initial_state(identity: &Identity) -> Result<InitialState, Error> 
                     stable_id(EntityKind::LaneEdge, &key(cell, route, "entry"))?,
                     stable_id(EntityKind::LaneEdge, &key(cell, route, "exit"))?,
                 ],
+                handoff: None,
                 // L1 背景无信号门（D1：L 族自有背景语义），信号组为 `None`。
                 signal_group_id: if identity.lane_change().is_some() {
                     None
@@ -112,32 +152,49 @@ pub(crate) fn initial_state(identity: &Identity) -> Result<InitialState, Error> 
         }
     }
     if let Some(params) = identity.lane_change() {
-        // 换道簇路线（e0→t→e2→int→exit）：每簇一条路线，无信号准入门（编辑侧
-        // Uncontrolled），信号组为 `None`。键按簇确定性派生（#1233）。
-        let slots = params.changers_per_cluster;
-        // 布局与入口长度由 lib.rs 的单一事实源推导（#1233 对象 b/F1）。
-        for cluster in 0..params.clusters {
-            let route_rank = identity.cells() * 4 + cluster;
-            routes.push(RouteRecord {
-                route_rank,
-                cell: identity.cells(),
-                route: cluster,
-                edge_ids: LC_ROUTE
-                    .iter()
-                    .map(|base| stable_id(EntityKind::LaneEdge, &cluster_key(base, cluster)))
-                    .collect::<Result<Vec<_>, Error>>()?,
-                signal_group_id: None,
-            });
-            // 换道者沿 e0 自前向后确定性错位，同速接近过渡段入口。
-            for slot in 0..slots {
+        if section_ids.len() != params.clusters as usize {
+            return Err(Error::Invalid("换道区段身份的数量与换道簇不一致".into()));
+        }
+        for (cluster, section_id) in section_ids.iter().enumerate() {
+            let cluster = cluster as u32;
+            for (slot, keys) in LC_ROUTES.iter().enumerate() {
+                let speed = crate::HANDOFF_SPEED_MM_S[slot];
+                let slot = slot as u32;
+                let rank = cluster * params.changers_per_cluster + slot;
+                let route_rank = identity.cells() * 4 + rank;
+                routes.push(RouteRecord {
+                    route_rank,
+                    cell: identity.cells() + cluster,
+                    route: slot,
+                    edge_ids: keys
+                        .iter()
+                        .map(|base| {
+                            stable_id_in(
+                                LC_EDIT_NAMESPACE,
+                                EntityKind::LaneEdge,
+                                &cluster_key(base, cluster),
+                            )
+                        })
+                        .collect::<Result<Vec<_>, Error>>()?,
+                    signal_group_id: None,
+                    handoff: Some(HandoffInput {
+                        section_id: section_id.clone(),
+                        left_index: slot,
+                        source_index: 0,
+                        stations_mm: [20_000, 110_000],
+                        station_window_mm: [0, 120_000],
+                        rear_stations_mm: [10_000, 40_000],
+                        speed_mm_s: 3_000,
+                    }),
+                });
                 vehicles.push(VehicleRecord {
-                    logical_rank: identity.scale + cluster * slots + slot,
+                    logical_rank: identity.scale + rank,
                     route_rank,
                     slot,
                     status: "active".into(),
                     edge_occurrence: 0,
-                    progress_mm: crate::lane_change_slot_progress_mm(slots, slot),
-                    speed_mm_per_s: 10_000,
+                    progress_mm: crate::HANDOFF_FRONT_MM,
+                    speed_mm_per_s: speed,
                     parking_space_id: None,
                 });
             }
@@ -151,6 +208,11 @@ pub(crate) fn initial_state(identity: &Identity) -> Result<InitialState, Error> 
         } else {
             stable_id(EntityKind::RightOfWayPolicySet, POLICY_KEY)?
         },
+        handoff_driving: identity.lane_change().map(|_| HandoffDrivingInput {
+            curve: vec![[0, 1_000], [100, laneflow_static_contract::MAX_SPEED_MM_S]],
+            max_span_mm: 3_000,
+            travel_tolerance_mm: 5,
+        }),
         vehicle_profile_id: stable_id(EntityKind::VehicleProfile, "car")?,
         routes,
         vehicles,

@@ -21,7 +21,7 @@ pub(super) struct Patch<'a> {
 }
 impl<'a> Patch<'a> {
     pub fn new(row: &'a RoadSurfaceSpan) -> Self {
-        let length = Interval::meters(row.stations[1].0 - row.stations[0].0);
+        let length = Interval::meters(row.stations_nm()[1].0 - row.stations_nm()[0].0);
         let [start, end] = row
             .jets
             .map(|jet| jet.map(|v| Interval::point(f64::from(v))));
@@ -90,7 +90,7 @@ impl<'a> Patch<'a> {
     }
 
     pub fn parameter(&self, station_nm: u64) -> Interval {
-        let [(a, _), (b, _)] = self.row.stations;
+        let [(a, _), (b, _)] = self.row.stations_nm();
         if station_nm == a {
             return Interval::ZERO;
         }
@@ -138,8 +138,8 @@ impl<'a> Patch<'a> {
         if speed.lo <= 0. {
             return Err(Failure::Projection);
         }
-        let stations = self.row.stations;
-        let station_error = Interval::meters(u64::from(stations[0].1.max(stations[1].1)));
+        let stations = self.row.stations_nm();
+        let station_error = Interval::meters(stations[0].1.max(stations[1].1));
         let result = Projection {
             station: (Interval::meters(stations[0].0) + self.length * t)
                 .with_error(station_error.hi),
@@ -204,8 +204,8 @@ impl Surface<'_> {
         for (i, row) in self.rows.iter().enumerate() {
             work.charge()?; // 每个访问的原语，包括被排除的行。
             let patch = Patch::new(row);
-            let lo = patch.parameter(self.window[0].max(row.stations[0].0));
-            let hi = patch.parameter(self.window[1].min(row.stations[1].0));
+            let lo = patch.parameter(self.window[0].max(row.stations_nm()[0].0));
+            let hi = patch.parameter(self.window[1].min(row.stations_nm()[1].0));
             if (i == 0 && patch.residual(lo, p).lo < 0.)
                 || (i + 1 == self.rows.len() && patch.residual(hi, p).hi > 0.)
             {

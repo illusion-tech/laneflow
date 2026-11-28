@@ -1,3 +1,6 @@
+mod handoff;
+pub use handoff::HandoffPoseInput;
+
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -115,13 +118,43 @@ impl SpatialSession {
         inputs: &[PoseInput],
         output: &mut CanonicalPoseBatch,
     ) -> Result<(), SpatialError> {
+        self.extract_pose_batch_with_handoffs(placement_token, inputs, std::iter::empty(), output)
+    }
+
+    /// 按调用方顺序提取一批位姿，用同拍横移观测替换相应记录的前杠锚点与朝向。
+    /// 其余车辆保持普通车道或泊位采样。
+    ///
+    /// # Errors
+    ///
+    /// 稀疏输入下标、修订、车道、框架或车体姿态失配，以及普通采样失败时，
+    /// 整批拒绝，保留之前的输出。
+    pub fn extract_pose_batch_with_handoffs<'a>(
+        &mut self,
+        placement_token: FramePlacementToken,
+        inputs: &[PoseInput],
+        handoffs: impl Iterator<Item = HandoffPoseInput<'a>>,
+        output: &mut CanonicalPoseBatch,
+    ) -> Result<(), SpatialError> {
         #[cfg(feature = "pose-profiling")]
         let sample_started = std::time::Instant::now();
         self.scratch.clear();
         self.scratch.reserve(inputs.len());
         let mut frame: Option<CanonicalFrameOrdinal> = None;
+        let mut handoffs = handoffs.peekable();
         for (input_index, input) in inputs.iter().copied().enumerate() {
-            let (sampled_frame, pose) = match self.sample(input.source) {
+            if let Some(handoff) = handoffs.peek()
+                && handoff.input_index < input_index
+            {
+                self.scratch.clear();
+                return Err(SpatialError::InvalidHandoffIndex {
+                    index: handoff.input_index,
+                });
+            }
+            let sampled = match handoffs.next_if(|handoff| handoff.input_index == input_index) {
+                Some(handoff) => self.sample_handoff(input.source, handoff),
+                None => self.sample(input.source),
+            };
+            let (sampled_frame, pose) = match sampled {
                 Ok(sampled) => sampled,
                 Err(source) => {
                     self.scratch.clear();
@@ -146,6 +179,12 @@ impl SpatialSession {
             self.scratch.push(CanonicalPoseRecord {
                 record: input.record,
                 pose,
+            });
+        }
+        if let Some(handoff) = handoffs.next() {
+            self.scratch.clear();
+            return Err(SpatialError::InvalidHandoffIndex {
+                index: handoff.input_index,
             });
         }
         let network_revision = Some(self.network_revision());
@@ -196,6 +235,16 @@ impl SpatialSession {
         edge: LaneEdgeOrdinal,
         progress_mm: u32,
     ) -> Result<(CanonicalFrameOrdinal, CanonicalPoseF32), SpatialError> {
+        let (geometry, traffic_length_mm) = self.lane_geometry(edge, progress_mm)?;
+        let pose = sample_lane_geometry(geometry, traffic_length_mm, progress_mm)?;
+        Ok((geometry.canonical_frame(), pose))
+    }
+
+    fn lane_geometry(
+        &self,
+        edge: LaneEdgeOrdinal,
+        progress_mm: u32,
+    ) -> Result<(LaneGeometryView<'_>, u32), SpatialError> {
         let traffic_length_mm = *self
             .revision
             .traffic()
@@ -215,8 +264,7 @@ impl SpatialSession {
             .and_then(|spatial| spatial.lane_pose())
             .and_then(|network| network.lane_geometry(edge))
             .ok_or(SpatialError::UnknownLaneEdge { edge })?;
-        let pose = sample_lane_geometry(geometry, traffic_length_mm, progress_mm)?;
-        Ok((geometry.canonical_frame(), pose))
+        Ok((geometry, traffic_length_mm))
     }
 
     fn sample_parking(
@@ -430,6 +478,8 @@ fn cross(left: CanonicalUnitVector3F32, right: CanonicalUnitVector3F32) -> Canon
 
 #[cfg(test)]
 mod tests {
+    mod handoff;
+
     use super::*;
     use laneflow_format::{FormatLimits, check_canonical_network_input};
     use laneflow_static_network::{

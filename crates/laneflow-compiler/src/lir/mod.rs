@@ -1729,6 +1729,7 @@ fn semantic_digest(
             for v in [edge.origin, edge.corridor_length, edge.start] {
                 hasher.update(&v.to_le_bytes());
             }
+            hash_u32(&mut hasher, edge.origin_error_mm);
             hash_u32(&mut hasher, edge.start_error);
             hash_u32(
                 &mut hasher,
@@ -1753,7 +1754,7 @@ fn semantic_digest(
         if let Some(band) = geometry.station {
             hasher.update(b"station-band\0");
             hash_u32(&mut hasher, geometry.facility_band.raw());
-            for offset in band.offsets_um {
+            for offset in band.offsets_mm {
                 hasher.update(&offset.to_le_bytes());
             }
             hash_u32(&mut hasher, band.lateral_error);

@@ -1,18 +1,24 @@
 # LF-SYNTH 正式输入生成器
 
-生成 `LF-SYNTH-v2` 的一万/十万车辆输入，覆盖 W1–W4、16/33 ms。输出一个包含
+生成 `LF-SYNTH-v2` 的 W1–W4 和双车动态换道竞争探针 L1。背景车辆规模为一万或十万，固定步长为 16 或 33 ms。输出一个包含
 `network.lfca`、`state.json`、`input-plan.json`、`manifest.json` 的新目录。
 文件合同见 [规范输入交付设计][lf-synth-input-bundle]，交通语义见
 [性能基线 §4][performance-baseline-workload]。
 
 编译：`cargo build --release --locked -p laneflow-synth-generator`。
 
+默认构建只生成和核验离线输入。运行程序启用 `runtime` 特性后，可将同一输入中的净空限速曲线、
+路线窗口和换道申请接入交通世界。L1 的申请顺序和阶段观测共用同一组按拍规则。
+
 命令行的位置参数为：
 
 ```text
 laneflow-synth-generator generate <10000|100000> <W1|W2|W3|W4> <16|33> <source-commit> <generator-commit> <new-directory>
+laneflow-synth-generator generate <10000|100000> LC <16|33> <source-commit> <generator-commit> <new-directory> <clusters> <changers_per_cluster>
 laneflow-synth-generator verify <directory>
 ```
+
+L1 命令使用 `LC`，末尾两个参数必填。正式 L1 取 `1 2`，表示一簇两车。多簇输入的簇数范围为 1 至 64，每簇固定两车。manifest 的场景标签为 `RouteHandoff`。两车从左右外侧车道同拍申请进入中间车道，状态目录记录每条路线使用的区段、共边和毫米窗口。
 
 两个提交参数必须是真实的 40 位小写提交标识；生成实现应先提交，再生成交付证据。
 输出目录的父目录须已存在，目标目录必须不存在。生成器不会覆盖旧交付；写入后逐文件
@@ -51,7 +57,7 @@ Spatial 的共享路网构建、显式政策安装、路线注册、初始人口
 cargo test --release --locked -p laneflow-synth-generator --lib full_scale_independent_process_matrix -- --ignored --nocapture
 ```
 
-测试依次处理 16 个正式身份，每个身份运行两个全新生成进程并比较四文件全部字节，
+测试依次处理 W1–W4 的 16 个正式身份，每个身份运行两个全新生成进程并比较四文件全部字节，
 重新验证目录，再核对静态计数、完整几何、信号程序及全部车辆的生产 API 初始化和
 一拍推进。原始双份输入与逐行更新的 `summary.json` 保留在证据目录；中断时
 `complete=false`，不能把部分记录标成完整通过。它不执行 W1–W4 的完整测量窗口、

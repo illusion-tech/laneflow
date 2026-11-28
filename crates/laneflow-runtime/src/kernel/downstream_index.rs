@@ -154,15 +154,25 @@ impl DownstreamIndex {
         gap: u32,
     ) -> bool {
         // 物理坐标较小的区间属于后车；只向前扩展该车自己的最小间距。
+        self.conflicts_except(interval, gap, |existing| existing == owner)
+    }
+
+    /// 同链 owner 仍各自登记区间；仅对已证明的成员跳过相互冲突。
+    pub(crate) fn conflicts_except(
+        &self,
+        interval: DownstreamInterval,
+        gap: u32,
+        exempt: impl Fn(VehicleHandle) -> bool,
+    ) -> bool {
         let end = u64::from(interval.end_mm()) + u64::from(gap);
-        self.query(self.root, interval, owner, end)
+        self.query(self.root, interval, &exempt, end)
     }
 
     fn query(
         &self,
         root: Option<NonZeroU32>,
         subject: DownstreamInterval,
-        owner: VehicleHandle,
+        exempt: &impl Fn(VehicleHandle) -> bool,
         end: u64,
     ) -> bool {
         let Some(root) = root else {
@@ -175,20 +185,20 @@ impl DownstreamIndex {
             return false;
         }
         if node.interval.edge() < subject.edge() {
-            return self.query(node.right, subject, owner, end);
+            return self.query(node.right, subject, exempt, end);
         }
         if node.interval.edge() > subject.edge() {
-            return self.query(node.left, subject, owner, end);
+            return self.query(node.left, subject, exempt, end);
         }
-        if node.owner != owner
-            && u64::from(node.interval.start_mm()) < end
+        if u64::from(node.interval.start_mm()) < end
             && node.end() > u64::from(subject.start_mm())
+            && !exempt(node.owner)
         {
             return true;
         }
-        self.query(node.left, subject, owner, end)
+        self.query(node.left, subject, exempt, end)
             || (u64::from(node.interval.start_mm()) < end
-                && self.query(node.right, subject, owner, end))
+                && self.query(node.right, subject, exempt, end))
     }
 
     /// 测试用：索引持有的逻辑字节数。

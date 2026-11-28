@@ -1,6 +1,6 @@
 # 路权来源固定字节样例
 
-LFCA 7 与 LFSM 8 的工程格式样例，来源模块从受检 full-spatial 编译输入取得。
+LFCA 8 与 LFSM 9 的工程格式样例，来源模块从受检 full-spatial 编译输入取得。
 测试在包内来源冻结接缝提供两个策略（第二个没有局部成员）、四类成员、两个同类
 evidence、嵌套法规字段和一个 Movement 方向；同名 key 跨成员种类合法。
 RoadEditing canvas 使用显式空字符串，Text、canvas 缺失/非空及 65,537 成员的

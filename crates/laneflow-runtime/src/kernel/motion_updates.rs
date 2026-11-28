@@ -823,7 +823,37 @@ impl MotionUpdates {
         }
     }
 
-    #[cfg(test)]
+    /// 按横移后的实际前杠位置更新 P6 工作集，保留 P5 已冻结的控制和预约义务。
+    pub(crate) fn set_handoff_motion(
+        &mut self,
+        index: usize,
+        state: VehicleState,
+        current: &VehicleStore,
+        compiled: Option<&super::tables::CompiledRoute>,
+        lengths: &[u32],
+    ) -> Result<(), StepError> {
+        let previous = self.row(index, current).source.position();
+        self.set(index, state, current)?;
+        let hints = &mut self.reports[self.order[index].physical].finalize_hints;
+        let retain_before = hints.retain();
+        *hints = hints.frozen_obligations().with_motion(
+            compiled,
+            lengths,
+            previous,
+            (&state).into(),
+            state.status != VehicleStatus::Active,
+        );
+        if retain_before != hints.retain() {
+            match self.resource_rows.binary_search(&index) {
+                Ok(position) => {
+                    self.resource_rows.remove(position);
+                }
+                Err(position) => self.resource_rows.insert(position, index),
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn set(
         &mut self,
         index: usize,

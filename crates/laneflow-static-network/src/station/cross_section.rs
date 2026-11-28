@@ -22,27 +22,27 @@ pub enum BoundaryPayload {
         /// 1 允许、2 禁止。
         effect: u8,
     },
-    /// 水平段长、半径与竖直覆盖范围以微米计。
+    /// 水平段长、半径与竖直覆盖范围以毫米计。
     Guardrail {
         /// 1 锚定低站位、2 锚定高站位。
         anchor_role: u8,
         /// 相对接缝的左偏移。
-        lateral_um: i32,
+        lateral_mm: i32,
         /// 两端帽中心的水平距离。
-        length_um: u32,
+        length_mm: u32,
         /// 水平半径。
-        radius_um: u32,
+        radius_mm: u32,
         /// 相对道路的底高与顶高。
-        heights_um: [i32; 2],
-        /// 参数统一误差上界，单位纳米。
-        error_nm: u32,
+        heights_mm: [i32; 2],
+        /// 参数统一误差上界，单位毫米。
+        error_mm: u32,
     },
     /// 两端依次存左偏、右偏、底高和顶高。
     Curb {
-        /// 低、高站位两端的长度参数，单位微米。
-        ends_um: [[i32; 4]; 2],
-        /// 参数统一误差上界，单位纳米。
-        error_nm: u32,
+        /// 低、高站位两端的长度参数，单位毫米。
+        ends_mm: [[i32; 4]; 2],
+        /// 参数统一误差上界，单位毫米。
+        error_mm: u32,
     },
 }
 
@@ -57,16 +57,24 @@ pub struct BoundaryExtent {
     pub left_index: u32,
     /// 1 规则、2 实体。
     pub kind: u8,
-    /// 区间的低、高端点，单位纳米。
-    pub stations_nm: [u64; 2],
+    /// 区间的低、高端点，单位毫米。
+    pub stations_mm: [u64; 2],
     /// 两端各自的站位误差上界。
-    pub errors_nm: [u32; 2],
+    pub errors_mm: [u32; 2],
     /// 完整开放时恰有一个与种类匹配的载荷。
     pub payload: Option<BoundaryPayload>,
     pub(super) name: [u8; 53],
     pub(super) name_len: u8,
 }
 impl BoundaryExtent {
+    pub(super) fn stations_nm(&self) -> [u64; 2] {
+        self.stations_mm.map(|mm| mm * 1_000_000)
+    }
+
+    pub(super) fn errors_nm(&self) -> [u64; 2] {
+        self.errors_mm.map(|mm| u64::from(mm) * 1_000_000)
+    }
+
     /// 当前接缝内稳定的局部名。
     #[must_use]
     pub fn local_key(&self) -> &str {
@@ -79,10 +87,10 @@ impl BoundaryExtent {
 pub struct LaneFootprint {
     /// 编制车道序号。
     pub lane: AuthoringLaneOrdinal,
-    /// 低、高站位的两条边界按左、右排列，以微米计。
-    pub ends_um: [[i32; 2]; 2],
-    /// 横向坐标的最大误差，单位纳米。
-    pub error_nm: u32,
+    /// 低、高站位的两条边界按左、右排列，以毫米计。
+    pub ends_mm: [[i32; 2]; 2],
+    /// 横向坐标的最大误差，单位毫米。
+    pub error_mm: u32,
     /// 此路幅是否可为车轮提供支承。
     pub supports_wheel: bool,
 }
@@ -94,10 +102,18 @@ pub struct RoadSurfaceSpan {
     pub corridor: RoadCorridorOrdinal,
     /// 路面使用的规范坐标系。
     pub frame: CanonicalFrameOrdinal,
-    /// 两端站位及各自的误差上界，单位纳米。
-    pub stations: [(u64, u32); 2],
+    /// 两端站位及各自的误差上界，单位毫米。
+    pub stations_mm: [(u64, u32); 2],
     /// 两端各含位置、一阶和二阶导数，各三分量。
     pub jets: [[f32; 9]; 2],
     /// 零至四阶导数相对于来源的闭区间误差范数上界。
     pub derivative_errors: [f32; 5],
+}
+
+impl RoadSurfaceSpan {
+    // 连续查询的区间端点向外取整。构建时已验证走廊站位可精确扩大到工作单位。
+    pub(super) fn stations_nm(&self) -> [(u64, u64); 2] {
+        self.stations_mm
+            .map(|(station, error)| (station * 1_000_000, u64::from(error) * 1_000_000))
+    }
 }

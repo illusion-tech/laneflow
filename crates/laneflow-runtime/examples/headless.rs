@@ -550,7 +550,7 @@ mod behavior {
         assert!(report.source_revision_matches, "published source revision");
         assert_eq!(
             report.network_revision,
-            "1c225cd04a4576f11c500af074482291429d766d938e973cf61bb843bffef4d4"
+            "afad6f95054b94f41d7d9e78b856a35d139602923b2b91ba76750de236b6e3c0"
         );
         assert_eq!(report.portal_id, "portal-main-west");
         assert_eq!(report.lane_index, 0);

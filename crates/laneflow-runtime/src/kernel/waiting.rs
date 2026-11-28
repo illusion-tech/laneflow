@@ -2666,6 +2666,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 与 read_view 相同的字段级只读投影：持有 committed/derived 借用期间
         // 仍可独占 workspace 字段完成规范消费。
         let view = crate::kernel::phase::StepReadView {
+            handoff_grants: &[],
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
@@ -6533,7 +6534,7 @@ pub(crate) mod tests {
                 crate::VehicleStatus::Active,
                 None,
                 None,
-                false,
+                Default::default(),
             )
             .expect("follower spawn");
         world

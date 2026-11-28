@@ -538,15 +538,6 @@ definition = "校验方法明确不能覆盖的对象或条件集合；须以对
 references = [{ document = "design-traffic-runtime-state-integrity" }]
 
 [[terms]]
-id = "mutually-invisible-co-lateral-transition-segments"
-name = "互不可见的共横向过渡段"
-english_aliases = ["mutually invisible co-lateral transition segments"]
-domains = ["runtime"]
-definition = "同一走廊中横向跨度相交、且现行运动与仲裁证明无法证明允许路线分支互相覆盖的两条横向过渡段。"
-references = [{ document = "design-lane-change-minimal-contract" }]
-scope_notes = ["现行固定预制过渡对这种组合存在能力限制；允许或拒绝条件以最小换道合同的覆盖证明为准。"]
-
-[[terms]]
 id = "near-gate-vehicle"
 name = "近门车辆"
 english_aliases = ["near-gate vehicle"]

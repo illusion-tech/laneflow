@@ -9,6 +9,8 @@ use crate::kernel::state::{CommittedWorldState, DerivedIndexes, TickWorkspace, W
 /// 同一拍初基线的只读投影，不含工作区或管理操作。
 #[derive(Clone, Copy)]
 pub(crate) struct StepReadView<'a> {
+    /// 本拍 P4 较早授予的横移临时预约；供 P5 所有运动共享。
+    pub(crate) handoff_grants: &'a [crate::kernel::handoff::execution::ActiveRouteHandoff],
     pub(crate) binding: &'a WorldBindingState,
     pub(crate) committed: &'a CommittedWorldState,
     pub(crate) derived: &'a DerivedIndexes,
@@ -114,6 +116,7 @@ impl StepWorkspace<'_> {
     /// 借用本工作区的拍初基线只读投影。
     pub(crate) fn read_view(&self) -> StepReadView<'_> {
         StepReadView {
+            handoff_grants: &[],
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
@@ -144,6 +147,7 @@ impl CommittedStateMut<'_> {
     /// 该写视图的拍初基线只读投影。
     pub(crate) fn read_view(&self) -> StepReadView<'_> {
         StepReadView {
+            handoff_grants: &[],
             binding: self.binding,
             committed: self.committed,
             derived: self.derived,
@@ -164,6 +168,7 @@ impl crate::kernel::state::WorldState {
     /// 世界的拍初基线只读投影。
     pub(crate) const fn read_view(&self) -> StepReadView<'_> {
         StepReadView {
+            handoff_grants: &[],
             binding: &self.binding,
             committed: &self.committed,
             derived: &self.derived,

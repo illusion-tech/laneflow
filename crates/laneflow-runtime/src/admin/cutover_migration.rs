@@ -6,6 +6,7 @@
 //! （候选与旧世界槽位布局一致——当期句柄恒等保持；逐实体重绑即重验证，
 //! 任一实体引用不存在或原样重绑违反 target 不变量都整体失败关闭）。
 
+use crate::kernel::conflict::RelativeDownstreamEnd;
 use crate::kernel::state::WorldState;
 
 use std::sync::Arc;
@@ -111,7 +112,11 @@ fn try_staging_slice<T: Default + Clone>(capacity: usize) -> Result<Box<[T]>, Cu
 /// 构造自两侧 `SharedIdentityIndex`（切换合同 §2：base 侧来自活动聚合、
 /// target 侧随候选；等价证明中共同复核稳定引用映射）。base 序数在 target
 /// 无对应稳定引用时为 `None`——使用处即「引用不存在」失败关闭点。
-pub(crate) struct CrossRevisionRebinding {
+pub(crate) struct CrossRevisionRebinding<'e> {
+    pub(crate) handoff_sources: Option<(
+        &'e laneflow_static_network::vehicle::HandoffSourceEvidence<'e>,
+        &'e laneflow_static_network::vehicle::HandoffSourceEvidence<'e>,
+    )>,
     lane_edges: Vec<Option<LaneEdgeOrdinal>>,
     parking_facilities: Vec<Option<ParkingFacilityOrdinal>>,
     parking_spaces: Vec<Option<ParkingSpaceOrdinal>>,
@@ -145,13 +150,93 @@ where
     Ok(map)
 }
 
-impl CrossRevisionRebinding {
+impl CrossRevisionRebinding<'_> {
+    /// 从机动入口到授权终点逐出现核对边身份与整条边长度。重复边仍保留各自的位置。
+    pub(crate) fn conflict_path_rebinds(
+        &self,
+        base: &SharedNetworkRevision,
+        target: &SharedNetworkRevision,
+        target_route: &crate::kernel::tables::CompiledRoute,
+        range: crate::ConflictPassageRange,
+        end: crate::DownstreamRoutePoint,
+    ) -> bool {
+        let Some(maneuver) = target_route
+            .maneuvers
+            .get(range.maneuver_occurrence_index() as usize)
+        else {
+            return false;
+        };
+        let Some(edges) = target_route
+            .edges
+            .get(maneuver.entry_route_edge_index as usize..=end.route_edge_index() as usize)
+        else {
+            return false;
+        };
+        if edges.is_empty() {
+            return false;
+        }
+        let base_lengths = base.traffic().lane_lengths_millimetres();
+        let target_lengths = target.traffic().lane_lengths_millimetres();
+        edges.iter().all(|&edge| {
+            target
+                .identity()
+                .stable_id(edge)
+                .and_then(|stable| base.identity().ordinal(stable))
+                .is_some_and(|source| {
+                    self.lane_edge(source) == Some(edge)
+                        && base_lengths[source.index()] == target_lengths[edge.index()]
+                })
+        })
+    }
+
+    pub(crate) fn compile_route_with_windows(
+        &self,
+        base: &SharedNetworkRevision,
+        target: &SharedNetworkRevision,
+        edges: &[LaneEdgeOrdinal],
+        windows: &[(u32, laneflow_static_network::vehicle::HandoffBinding)],
+        live_conflicts: u64,
+        capacity: u64,
+    ) -> Result<crate::kernel::tables::CompiledRoute, crate::RouteError> {
+        if windows.is_empty() {
+            return compile_route(target, edges, live_conflicts, capacity);
+        }
+        let (old_sources, new_sources) = self
+            .handoff_sources
+            .ok_or(crate::RouteError::InvalidHandoffWindow)?;
+        let mut occurrences = Vec::new();
+        occurrences
+            .try_reserve_exact(windows.len())
+            .map_err(|_| crate::RouteError::AllocationFailed)?;
+        for &(source_index, binding) in windows {
+            let rebound = target
+                .rebind_handoff_window(base, binding, old_sources, new_sources)
+                .map_err(|_| crate::RouteError::InvalidHandoffWindow)?
+                .window();
+            occurrences.push(crate::RouteHandoffOccurrence {
+                revision: target.network_revision(),
+                source_index,
+                owner: rebound.owner,
+                left_index: rebound.left_index,
+                stations_mm: rebound.stations_mm,
+            });
+        }
+        crate::kernel::tables::CompiledRoute::compile_handoffs(
+            target,
+            edges,
+            &occurrences,
+            live_conflicts,
+            capacity,
+        )
+    }
+
     /// 从两侧身份索引构建重绑表；预留失败按切换暂存失败关闭。
     pub(crate) fn build(
         base: &SharedIdentityIndex,
         target: &SharedIdentityIndex,
     ) -> Result<Self, CutoverError> {
         Ok(Self {
+            handoff_sources: None,
             lane_edges: map_kind(base, target, EntityKind::LaneEdge)?,
             parking_facilities: map_kind(base, target, EntityKind::ParkingFacility)?,
             parking_spaces: map_kind(base, target, EntityKind::ParkingSpace)?,
@@ -167,6 +252,7 @@ impl CrossRevisionRebinding {
 
     /// 释放四张重绑表（失败结算时归还内存；结算后事务不可再消费）。
     pub(crate) fn release(&mut self) {
+        self.handoff_sources = None;
         self.lane_edges = Vec::new();
         self.parking_facilities = Vec::new();
         self.parking_spaces = Vec::new();
@@ -531,6 +617,9 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     target_source: CommittedNetworkSource,
     rebinding: &CrossRevisionRebinding,
 ) -> Result<(WorldState, ConflictCutoverFinalizationPlan), CutoverError> {
+    if !world.committed.handoffs.is_empty() {
+        return Err(CutoverError::ActiveHandoff);
+    }
     world.validate_cutover_policy(&target_revision)?;
     let policy_binding = crate::kernel::policy::WorldPolicyBinding::install(
         &target_revision,
@@ -568,24 +657,27 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             };
             target_edges.push(target_edge);
         }
-        let migrated = compile_route(
-            target_revision.as_ref(),
-            target_edges.as_slice(),
-            conflict_occurrence_total,
-            world.binding.config.route_conflict_occurrence_capacity(),
-        )
-        .map_err(|error| match error {
-            crate::RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
-            crate::RouteError::ConflictOccurrenceCapacityExceeded {
-                current,
-                added,
-                capacity,
-            } => CutoverError::ConflictOccurrenceCapacityExceeded {
-                total: current.saturating_add(added),
-                capacity,
-            },
-            _ => CutoverError::RouteRevalidationFailed,
-        })?;
+        let migrated = rebinding
+            .compile_route_with_windows(
+                &world.binding.revision,
+                &target_revision,
+                &target_edges,
+                compiled.handoff_windows(),
+                conflict_occurrence_total,
+                world.binding.config.route_conflict_occurrence_capacity(),
+            )
+            .map_err(|error| match error {
+                crate::RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
+                crate::RouteError::ConflictOccurrenceCapacityExceeded {
+                    current,
+                    added,
+                    capacity,
+                } => CutoverError::ConflictOccurrenceCapacityExceeded {
+                    total: current.saturating_add(added),
+                    capacity,
+                },
+                _ => CutoverError::RouteRevalidationFailed,
+            })?;
         if !waiting_occurrences_rebind(compiled, &migrated, rebinding) {
             return Err(CutoverError::WaitingRevalidationFailed);
         }
@@ -960,11 +1052,9 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             world_id,
             world_generation,
             config,
-            // 切换候选绑定是全新世界账；过渡成本计数随新绑定从零开始
-            // （#1243 T2：逐世界归因，不继承切换前计数）。
-            transition_cost: crate::kernel::transition_cost::Recorder::new(),
         },
         committed: crate::kernel::state::CommittedWorldState {
+            handoffs: Vec::new(),
             conflict,
             conflict_eligibility: conflict_eligibility.into(),
             latest_conflict_decisions,
@@ -988,6 +1078,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             latest_transition_events,
         },
         derived: crate::kernel::state::DerivedIndexes {
+            handoff_plans: Vec::new(),
             conflict: conflict_indexes,
             active_order,
             live_order_index: Default::default(),
@@ -1078,15 +1169,10 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         let base_state = world
             .vehicle_state(handle)
             .ok_or(CutoverError::WaitingRevalidationFailed)?;
-        // 迁移域入口级拒绝（#1217 D3/D4）：过渡态车辆增量在迁移日志/
-        // 增量形制中无忠实编码（phase Gate 槽表达不了资源种类与 T 稳定
-        // 边身份），结构化拒绝、零部分提交；不得让 `from_state` 触发 panic。
-        if !VehicleDelta::journalable(&base_state, world.compiled_route(base_state.route)) {
-            return Err(CutoverError::UnsupportedTransitionState(
-                crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
-            ));
-        }
-        let delta = VehicleDelta::from_state(&base_state, world.compiled_route(base_state.route));
+        let delta = VehicleDelta::from_state(&base_state, world.compiled_route(base_state.route))
+            .ok_or(CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
+        })?;
         let migrated =
             vehicle_state_from_delta(&world.binding.revision, &candidate, rebinding, &delta)?;
         candidate
@@ -1111,7 +1197,7 @@ fn mapped_conflict_address(
     source_address: crate::ConflictPassageAddress,
 ) -> Option<crate::ConflictPassageAddress> {
     let stream = rebinding.participant_stream(source_address.stream())?;
-    let zone = rebinding.conflict_zone(source_address.static_zone()?)?;
+    let zone = rebinding.conflict_zone(source_address.zone())?;
     target.conflict_read().unique_address(zone, stream)
 }
 
@@ -1634,11 +1720,12 @@ pub(crate) fn migrate_conflict_state(
             source_downstream.push(claim.interval);
         }
         let source_downstream_plan = source
-            .reservation_downstream_claim_plan(source_range, source_state.length_mm)
+            .reservation_downstream_claim_plan_to(
+                source_range,
+                source_state.length_mm,
+                source_reservation.downstream_target(),
+            )
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
-        if source_reservation.downstream_target() != source_downstream_plan.target() {
-            return Err(CutoverError::ConflictRevalidationFailed);
-        }
         let mut expected_source = try_staging_vec(source_downstream_plan.raw_interval_capacity())?;
         source
             .derive_reservation_downstream_claims_from_plan(
@@ -1673,10 +1760,19 @@ pub(crate) fn migrate_conflict_state(
             return Err(CutoverError::ConflictRevalidationFailed);
         }
         let target_downstream_plan = target
-            .reservation_downstream_claim_plan(target_range, target_state.length_mm)
+            .reservation_downstream_claim_plan_to(
+                target_range,
+                target_state.length_mm,
+                source_reservation.downstream_target(),
+            )
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
-        // 直移逐边映射完整路线，入口出现已核验。物理并集相等仍可能落在另一次经过。
-        if target_downstream_plan.target() != source_reservation.downstream_target() {
+        if !rebinding.conflict_path_rebinds(
+            &source.binding.revision,
+            &target.binding.revision,
+            target_compiled,
+            target_range,
+            target_downstream_plan.target(),
+        ) {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
         let mut downstream = try_staging_vec(target_downstream_plan.raw_interval_capacity())?;
@@ -1783,17 +1879,6 @@ pub(crate) fn migrate_conflict_state(
     target_addresses.extend(arbiter.read().addresses());
     target_addresses.retain(|address| inherited_addresses.binary_search(address).is_err());
     for address in target_addresses.iter().copied() {
-        // 归属≠身份（#1217 D3）：过渡资源格的 lag 参照（含新格 CutoverFloor）
-        // 在持久形制中表达不了资源种类与 T 稳定边身份，迁移域 fail closed——
-        // 含固定过渡资源格的网络在跨修订切换时整体拒绝。
-        if matches!(
-            address.resource(),
-            crate::kernel::conflict::ConflictResource::Transition(_)
-        ) {
-            return Err(CutoverError::UnsupportedTransitionState(
-                crate::UnsupportedTransitionState::TransitionLagHistory,
-            ));
-        }
         arbiter
             .write()
             .restore_lag_reference(
@@ -1820,7 +1905,7 @@ pub(crate) fn migrate_conflict_state(
             .ok_or(CutoverError::ConflictRevalidationFailed)?
             .maneuver_traversal = Some(traversal);
     }
-    if !target.conflict_state_valid() {
+    if !target.conflict_state_valid() || target.conflict_platoons_valid() != Ok(true) {
         return Err(CutoverError::ConflictRevalidationFailed);
     }
     Ok(ConflictCutoverFinalizationPlan {
@@ -2062,37 +2147,30 @@ pub(crate) fn project_expected_conflict(
         )
         .ok_or(CutoverError::ConflictRevalidationFailed)?;
         let downstream_plan = target
-            .reservation_downstream_claim_plan(target_range, target_state.length_mm)
+            .reservation_downstream_claim_plan_to(
+                target_range,
+                target_state.length_mm,
+                source_reservation.downstream_target(),
+            )
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
-        if downstream_plan.target() != source_reservation.downstream_target() {
+        if !rebinding.conflict_path_rebinds(
+            &source.binding.revision,
+            &target.binding.revision,
+            target_compiled,
+            target_range,
+            downstream_plan.target(),
+        ) {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
-        let mut physical = try_staging_vec(downstream_plan.raw_interval_capacity())?;
-        target
-            .derive_reservation_downstream_claims_from_plan(downstream_plan, &mut physical)
-            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
-        let mut downstream_intervals = try_staging_vec(physical.len())?;
-        for interval in physical {
-            downstream_intervals.push(crate::admin::snapshot::CapturedConflictDownstreamInterval {
-                lane_edge: *target
-                    .binding
-                    .revision
-                    .identity()
-                    .stable_id(interval.edge())
-                    .ok_or(CutoverError::ConflictRevalidationFailed)?
-                    .as_untyped(),
-                start_mm: interval.start_mm(),
-                end_mm: interval.end_mm(),
-            });
-        }
-        downstream_intervals.sort_unstable_by_key(|interval| {
-            (interval.lane_edge, interval.start_mm, interval.end_mm)
-        });
         existing.maneuver_occurrence_index = first_static.maneuver_index;
         existing.maneuver_entry_route_edge_index = maneuver.entry_route_edge_index;
         existing.admission_gate = gate_stable;
         existing.passages = passages;
-        existing.downstream_intervals = downstream_intervals;
+        existing.downstream_end = RelativeDownstreamEnd::from_point(
+            maneuver.entry_route_edge_index,
+            downstream_plan.target(),
+        )
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
         let traversal = vehicle
             .maneuver_traversal
             .as_mut()
@@ -2132,17 +2210,6 @@ pub(crate) fn project_expected_conflict(
             .unwrap_or(crate::ConflictLagReference::CutoverFloor(commit_time_ms));
         if reference == crate::ConflictLagReference::NoHistory {
             continue;
-        }
-        // 归属≠身份（#1217 D3 防御）：过渡资源格的 lag 行在持久形制中表达
-        // 不了资源种类与 T 稳定边身份；迁移入口（`migrate_conflict_state`）
-        // 已拒绝含 T 目标格，此处兜底同口径，不得以归属对顶替。
-        if matches!(
-            target_address.resource(),
-            crate::kernel::conflict::ConflictResource::Transition(_)
-        ) {
-            return Err(CutoverError::UnsupportedTransitionState(
-                crate::UnsupportedTransitionState::TransitionLagHistory,
-            ));
         }
         let locator = target
             .conflict_passage_locator(target_address)
@@ -3806,7 +3873,10 @@ pub(crate) mod tests {
                 VehicleStatus::Active,
                 None,
                 None,
-                true,
+                crate::kernel::world::RestoreAdmission {
+                    conflict_authority: true,
+                    ..Default::default()
+                },
             )
             .expect("reservation vehicle");
         install_conflict_reservation(&mut world, route, vehicle);
@@ -3862,11 +3932,7 @@ pub(crate) mod tests {
                 .stable_id(source_address.stream())
                 .expect("source stream identity"),
             base.identity()
-                .stable_id(
-                    source_address
-                        .static_zone()
-                        .expect("static zone (S4: transition 不入迁移域)"),
-                )
+                .stable_id(source_address.zone())
                 .expect("source zone identity"),
         );
         let descriptor = NetworkRevisionCutoverDescriptor::new(
@@ -3912,11 +3978,7 @@ pub(crate) mod tests {
                     .expect("target stream identity"),
                 target
                     .identity()
-                    .stable_id(
-                        target_address
-                            .static_zone()
-                            .expect("static zone (S4: transition 不入迁移域)"),
-                    )
+                    .stable_id(target_address.zone(),)
                     .expect("target zone identity"),
             ),
             source_locator,

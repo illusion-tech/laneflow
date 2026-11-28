@@ -41,6 +41,13 @@ related = ["adr-0003", "adr-0004", "adr-0012", "adr-0015", "adr-0022", "adr-0028
 - 现行合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，有折线边长由规范 `f32` 弧长派生后量化并写回 IR，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数，公开 `Canonical*View` 删除米制访问器。
 - 空间层按 ADR 0015 使用每轴 `±16_384 m` 的 canonical `f32` 几何/位姿；编制曲线按 ADR 0022 在 `f64` 中求值。三维点/向量不并入毫米轴（#354）。
 
+道路交通的位置、距离和行为验收以整数毫米为基线。交接窗口、轨迹起止站位和净空限速控制点使用整毫米。毫米读数跨过边、标线或障碍时，运行时按覆盖整个区间的证据决定占用与放行。公开站位、后轴行程和几何见证使用整数毫米。闭区间下界向下、上界向上取整，已证安全前缀只公布完整毫米。切点归属先按未扩张的区间和行驶方向裁决，再输出毫米包络。活动车辆的每拍积分保留余数到下一拍，后续占用和制动继续使用原求证区间。[走廊里程与横断面几何][shared-station]
+
+两类内部计算保留更细的中间量。
+
+- 车辆以 100 毫米/秒行驶，每 4 毫秒走 0.4 毫米。连续 250 拍应走 100 毫米。运动积分保留跨拍余数，制动距离向安全侧取整；快照恢复后仍须逐拍得到相同行程。显式停车入口、车身尺寸和限速窗口以毫米判定。
+- 原线行程相对规范折线的总误差限为 1 毫米。曲线积分与折线逼近分摊此上限，局部误差随弦长累计。保守求界可用更细的中间数，发布距离时把端点量化误差计入最终上界。三维位姿按空间框架输出，角度、时间和速度分别按自己的量纲处理。
+
 本设计固定数值职责，不固定 Spatial 几何容器、空间索引或具体引擎 ABI。引擎无关边界固定 batch-level frame/placement identity 和 canonical `f32` 位姿类型，但不包含宿主 Transform。
 
 ## 2. 现行数值分层
@@ -169,3 +176,5 @@ Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的�
 [three-vector3]: https://threejs.org/docs/pages/Vector3.html
 [babylon-vector3]: https://doc.babylonjs.com/typedoc/classes/BABYLON.Vector3
 [profile-geometry-format]: portable-canonical-artifact.md#vehicle-profile-geometry-format
+
+[shared-station]: cross-section-stationing-and-lateral-geometry.md

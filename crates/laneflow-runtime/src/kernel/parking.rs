@@ -916,14 +916,10 @@ struct ResolvedAnchor {
 fn parking_entry_forward_reachable(
     current_occurrence: u32,
     current_progress_mm: u32,
-    current_carry_um: u16,
     entry_occurrence: u32,
     entry_progress_mm: u32,
 ) -> bool {
-    entry_occurrence > current_occurrence
-        || (entry_occurrence == current_occurrence
-            && (entry_progress_mm > current_progress_mm
-                || (entry_progress_mm == current_progress_mm && current_carry_um == 0)))
+    (current_occurrence, current_progress_mm) <= (entry_occurrence, entry_progress_mm)
 }
 
 fn exact_parking_arrival(
@@ -936,7 +932,6 @@ fn exact_parking_arrival(
         && state.route_edge_index == reservation.entry_route_occurrence()
         && state.progress_mm == entry_progress_mm
         && state.speed_mm_s == 0
-        && state.carry_um == 0
 }
 
 fn map_waiting_parking_error(error: crate::kernel::waiting::WaitingBindingError) -> ParkingError {
@@ -1190,20 +1185,15 @@ impl crate::kernel::state::WorldState {
         let state = self
             .vehicle_state(vehicle)
             .expect("committed parking update keeps vehicle live");
-        // 迁移日志入口级拒绝（#1217 D4）：增量只在日志武装时物化；无法忠实
-        // 编码的过渡态粘性终止日志，不得让 `from_state` 触发 panic。
         if self.admin.migration_journal.is_some() {
             let compiled = self.compiled_route(state.route);
-            if VehicleDelta::journalable(&state, compiled) {
-                let delta = VehicleDelta::from_state(&state, compiled);
+            if let Some(delta) = VehicleDelta::from_state(&state, compiled) {
                 let parking = self.parking_binding_delta(vehicle);
                 if let Some(journal) = self.admin.migration_journal.as_mut() {
                     journal.record_vehicle_parking_updated(command_cursor, delta, parking);
                 }
             } else if let Some(journal) = self.admin.migration_journal.as_mut() {
-                journal.refuse_unsupported_transition_state(
-                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
-                );
+                journal.refuse_invalid_vehicle(state.handle().index());
             }
         }
     }
@@ -1280,7 +1270,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆句柄、
     /// 生命周期状态（`StaleVehicle` / `InvalidVehicleStatus`）、既有停车绑定
-    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、等待区遍历
+    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、横移导致入口不可达（`HandoffConflict`）、等待区遍历
     /// 冲突、准入策略、容量分配、命令游标耗尽或内部不变量等任一失败族命中时
     /// 返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；失败不改变占用
     /// 状态。
@@ -1302,6 +1292,24 @@ impl crate::kernel::state::WorldState {
             return Err(ParkingError::AccessDenied);
         }
         self.validate_forward_reachable(state, anchor.route_occurrence, anchor.progress_mm)?;
+        if let Ok(index) = self
+            .committed
+            .handoffs
+            .binary_search_by_key(&vehicle.index(), |h| h.vehicle.index())
+            && !self.committed.handoffs[index].parking_entry_reachable(
+                self.read_view(),
+                state,
+                (anchor.route_occurrence, anchor.progress_mm),
+            )
+        {
+            return Err(ParkingError::HandoffConflict);
+        }
+        self.check_conflict_storage_for_parking(
+            state,
+            state,
+            anchor.route_occurrence,
+            anchor.progress_mm,
+        )?;
         self.validate_waiting_parking_anchor(state.route, anchor.route_occurrence)
             .map_err(|error| match error {
                 crate::kernel::waiting::WaitingBindingError::ParkingConflict => {
@@ -1421,6 +1429,14 @@ impl crate::kernel::state::WorldState {
                 }
                 if self.vehicle_has_conflict_authority(vehicle) {
                     return Err(ParkingError::ConflictTraversalActive);
+                }
+                if self
+                    .committed
+                    .handoffs
+                    .iter()
+                    .any(|record| record.vehicle == vehicle)
+                {
+                    return Err(ParkingError::HandoffConflict);
                 }
                 if reservation.route() != state.route
                     || !self
@@ -1580,6 +1596,29 @@ impl crate::kernel::state::WorldState {
         let route = input.route();
         let occurrence =
             self.validate_anchor_on_route(route, input.exit_route_occurrence(), exit_edge)?;
+        let compiled = self
+            .compiled_route(route)
+            .ok_or(ParkingError::UnknownRoute)?;
+        let start = compiled.ordinary_leg_start(occurrence);
+        if (start != 0
+            && super::entrance::uncovered_tail_mm(
+                self.binding.revision.traffic().lane_lengths_millimetres(),
+                &compiled.edges[start..],
+                occurrence - start,
+                exit_progress_mm,
+                state.length_mm,
+            ) != Some(0))
+            || self.placement_conflicts_with_handoff(
+                compiled,
+                occurrence,
+                exit_progress_mm,
+                state.length_mm,
+                state.profile,
+                0,
+            )
+        {
+            return Err(ParkingError::HandoffConflict);
+        }
         if self.route_suffix_denied(route, state.class, occurrence) {
             return Err(ParkingError::AccessDenied);
         }
@@ -1604,8 +1643,13 @@ impl crate::kernel::state::WorldState {
             // 让出的结果不会返回给调用方。
             return Err(ParkingError::AllocationFailed);
         }
-        if let Some(blocker) =
-            self.overlap_blocker(route, occurrence, exit_progress_mm, state.length_mm)
+        let occupancy_error = |error| match error {
+            crate::StepError::OccupancyAllocFailed => ParkingError::AllocationFailed,
+            _ => ParkingError::InvariantViolation,
+        };
+        if let Some(blocker) = self
+            .placement_overlap_blocker(route, occurrence, exit_progress_mm, state.length_mm)
+            .map_err(occupancy_error)?
         {
             return Err(ParkingError::LeavePhysicalOverlap { blocker });
         }
@@ -1613,11 +1657,7 @@ impl crate::kernel::state::WorldState {
             // 让出的结果不会返回给调用方。
             return Err(ParkingError::AllocationFailed);
         }
-        self.ensure_current_occupancy()
-            .map_err(|error| match error {
-                crate::StepError::OccupancyAllocFailed => ParkingError::AllocationFailed,
-                _ => ParkingError::InvariantViolation,
-            })?;
+        self.ensure_current_occupancy().map_err(occupancy_error)?;
         self.validate_leave_followers(candidate, &self.derived.occupancy)?;
         match self.check_active_conflict_capability(
             route,
@@ -1694,8 +1734,18 @@ impl crate::kernel::state::WorldState {
         if state.status != VehicleStatus::Active {
             return Err(ParkingError::InvalidVehicleStatus);
         }
-        if self.vehicle_has_conflict_authority(vehicle) {
+        if self.vehicle_has_conflict_authority(vehicle)
+            && self.conflict_reservation(vehicle).is_none()
+        {
             return Err(ParkingError::ConflictTraversalActive);
+        }
+        if self
+            .committed
+            .handoffs
+            .iter()
+            .any(|record| record.vehicle == vehicle)
+        {
+            return Err(ParkingError::HandoffConflict);
         }
         let anchor = self.resolve_rebind_anchor(input)?;
         let binding = self
@@ -1753,9 +1803,25 @@ impl crate::kernel::state::WorldState {
         if !footprints_equal {
             return Err(ParkingError::RebindBodyFootprintMismatch);
         }
-        let (maneuver_traversal, waiting_membership) = self
-            .rebind_waiting_authority(state, new_route, new_current_index)
-            .map_err(map_waiting_parking_error)?;
+        let conflict = self
+            .rebound_conflict_reservation(state, new_route, input.new_current_route_occurrence())
+            .map_err(|_| ParkingError::ConflictTraversalActive)?;
+        let (maneuver_traversal, waiting_membership) = if let Some(held) = conflict {
+            if state.waiting_membership.is_some() {
+                return Err(ParkingError::ConflictTraversalActive);
+            }
+            let traversal = crate::ManeuverTraversalState {
+                route: new_route,
+                maneuver_occurrence_index: held.maneuver_occurrence_index(),
+                phase: crate::ManeuverTraversalPhase::Clearing {
+                    admission_gate_hop: held.admission_gate_hop(),
+                },
+            };
+            (Some(traversal), None)
+        } else {
+            self.rebind_waiting_authority(state, new_route, new_current_index)
+                .map_err(map_waiting_parking_error)?
+        };
         let candidate = VehicleState {
             route: new_route,
             route_edge_index: input.new_current_route_occurrence(),
@@ -1764,14 +1830,23 @@ impl crate::kernel::state::WorldState {
             ..state
         };
         self.validate_forward_reachable(candidate, anchor.route_occurrence, anchor.progress_mm)?;
+        self.check_conflict_storage_for_parking(
+            state,
+            candidate,
+            anchor.route_occurrence,
+            anchor.progress_mm,
+        )?;
         self.validate_waiting_parking_anchor(new_route, anchor.route_occurrence)
             .map_err(map_waiting_parking_error)?;
-        match self.check_active_conflict_capability(
-            new_route,
+        match crate::kernel::tables::check_conflict_capability_with_gate(
+            self.compiled_route(new_route)
+                .ok_or(ParkingError::UnknownRoute)?,
+            lengths,
             new_current_index,
             state.progress_mm,
             state.carry_um,
             state.length_mm,
+            conflict.map(|held| held.admission_gate_hop()),
         ) {
             Ok(()) => {}
             Err(ConflictCapabilityError::InvalidCursor) => {
@@ -1822,6 +1897,9 @@ impl crate::kernel::state::WorldState {
         }
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         self.committed.vehicles.slot_mut(index).state = Some(candidate);
+        if let Some(held) = conflict {
+            self.install_rebound_conflict(held);
+        }
         self.committed
             .parking
             .replace_reservation(vehicle, reservation);
@@ -1834,6 +1912,24 @@ impl crate::kernel::state::WorldState {
             .note_active_source(vehicle);
         let _ = entry_index;
         Ok(ParkingCommandOutcome::Committed(record))
+    }
+
+    fn check_conflict_storage_for_parking(
+        &self,
+        old: VehicleState,
+        new: VehicleState,
+        hop: u32,
+        progress: u32,
+    ) -> Result<(), ParkingError> {
+        use crate::kernel::conflict::ConflictAcquireError;
+        match self.parking_preserves_conflict_storage(old, new, hop, progress) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(ParkingError::ConflictTraversalActive),
+            Err(ConflictAcquireError::Capacity | ConflictAcquireError::ScratchAllocFailed) => {
+                Err(ParkingError::AllocationFailed)
+            }
+            Err(_) => Err(ParkingError::InvariantViolation),
+        }
     }
 
     /// 直接构造 `Parked + Occupied`；不伪造 reservation 或入口 arrival。
@@ -1938,20 +2034,15 @@ impl crate::kernel::state::WorldState {
         self.commit_route_ref_increment(input.route(), route_ref);
         self.committed.parking.insert_occupied(vehicle, target);
         self.committed.command_cursor = command_cursor;
-        // 迁移日志入口级拒绝（#1217 D4）：parked spawn 无 traversal、判据恒真，
-        // 仍统一走入口判据；无法忠实编码时粘性终止日志。
         if self.admin.migration_journal.is_some() {
             let compiled = self.compiled_route(state.route);
-            if VehicleDelta::journalable(&state, compiled) {
-                let delta = VehicleDelta::from_state(&state, compiled);
+            if let Some(delta) = VehicleDelta::from_state(&state, compiled) {
                 let parking = self.parking_binding_delta(vehicle);
                 if let Some(journal) = self.admin.migration_journal.as_mut() {
                     journal.record_vehicle_parking_spawned(command_cursor, delta, parking);
                 }
             } else if let Some(journal) = self.admin.migration_journal.as_mut() {
-                journal.refuse_unsupported_transition_state(
-                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
-                );
+                journal.refuse_invalid_vehicle(state.handle().index());
             }
         }
         Ok(ParkedVehicleSpawnRecord { vehicle, target })
@@ -2023,6 +2114,9 @@ impl crate::kernel::state::WorldState {
         };
 
         self.unregister_overlap_vehicle(state);
+        self.committed
+            .handoffs
+            .retain(|hold| hold.vehicle != vehicle);
         match binding {
             Some(ParkingBinding::Reserved(_)) => {
                 self.committed.parking.cancel_reserved(vehicle);
@@ -2106,7 +2200,7 @@ impl TrafficWorld {
     ///
     /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆句柄、
     /// 生命周期状态（`StaleVehicle` / `InvalidVehicleStatus`）、既有停车绑定
-    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、等待区遍历
+    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、横移导致入口不可达（`HandoffConflict`）、等待区遍历
     /// 冲突、准入策略、容量分配、命令游标耗尽或内部不变量等任一失败族命中时
     /// 返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；失败不改变占用
     /// 状态。
@@ -2249,6 +2343,36 @@ impl TrafficWorld {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
+    /// 横移覆盖普通提案并改变了到达判定时，按实际提交的更新顺序重算本拍观察。
+    pub(super) fn rebuild_parking_arrivals(
+        self,
+        updates: &super::motion_updates::MotionUpdates,
+        arrivals: &mut Vec<ParkingArrivalObservation>,
+    ) -> Result<(), crate::StepError> {
+        arrivals.clear();
+        for index in 0..updates.active_len() {
+            let (_, next) = updates.get(index, &self.committed.vehicles);
+            let Some(ParkingBinding::Reserved(r)) = self.committed.parking.binding(next.handle)
+            else {
+                continue;
+            };
+            let previous = self
+                .vehicle_state(next.handle)
+                .ok_or(crate::StepError::ParkingInvariantViolation)?;
+            if self.parking_arrived_for(next, r) && !self.parking_arrived_for(previous, r) {
+                super::tick::push_parking_arrival(
+                    arrivals,
+                    ParkingArrivalObservation {
+                        vehicle: next.handle,
+                        target: r.target(),
+                    },
+                    self.binding.world_id,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     /// 校验锚点边位于路线的指定出现记录位置。
     pub(crate) fn validate_anchor_on_route(
         self,
@@ -2279,7 +2403,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let reachable = parking_entry_forward_reachable(
             state.route_edge_index,
             state.progress_mm,
-            state.carry_um,
             entry_occurrence,
             entry_progress_mm,
         );
@@ -2606,7 +2729,13 @@ mod tests {
     #[test]
     fn arrival_requires_every_exact_committed_field() {
         let (base, reservation) = arrival_fixture();
-        assert!(exact_parking_arrival(base, reservation, 20_000));
+        for carry_um in [0, 1, 999] {
+            assert!(exact_parking_arrival(
+                VehicleState { carry_um, ..base },
+                reservation,
+                20_000
+            ));
+        }
 
         let counterexamples = [
             VehicleState {
@@ -2626,7 +2755,8 @@ mod tests {
                 ..base
             },
             VehicleState {
-                carry_um: 1,
+                progress_mm: 19_999,
+                carry_um: 999,
                 ..base
             },
             VehicleState {
@@ -2644,13 +2774,85 @@ mod tests {
     }
 
     #[test]
-    fn forward_reachability_closes_the_sub_millimetre_boundary() {
-        assert!(parking_entry_forward_reachable(3, 20_000, 0, 3, 20_000));
-        assert!(!parking_entry_forward_reachable(3, 20_000, 1, 3, 20_000));
-        assert!(parking_entry_forward_reachable(3, 20_000, 999, 3, 20_001));
-        assert!(parking_entry_forward_reachable(3, 20_000, 999, 4, 0));
-        assert!(!parking_entry_forward_reachable(3, 20_000, 0, 2, 99_999));
-        assert!(!parking_entry_forward_reachable(3, 20_000, 0, 3, 19_999));
+    fn forward_reachability_compares_occurrence_and_millimetres() {
+        assert!(parking_entry_forward_reachable(3, 20_000, 3, 20_000));
+        assert!(parking_entry_forward_reachable(3, 20_000, 3, 20_001));
+        assert!(parking_entry_forward_reachable(3, 20_000, 4, 0));
+        assert!(!parking_entry_forward_reachable(3, 20_000, 2, 99_999));
+        assert!(!parking_entry_forward_reachable(3, 20_000, 3, 19_999));
+    }
+
+    #[test]
+    fn parking_commands_use_the_committed_millimetre_and_keep_overshoot_atomic() {
+        for virtual_pool in [false, true] {
+            for (progress_mm, speed_mm_s, carry_um) in [
+                (19_999, 0, 999),
+                (20_000, 0, 1),
+                (20_000, 0, 999),
+                (20_000, 1, 999),
+                (20_001, 0, 0),
+            ] {
+                let (mut world, vehicle, target) = binding_reuse_world(virtual_pool);
+                {
+                    let mut slot = world
+                        .state
+                        .committed
+                        .vehicles
+                        .slot_mut(vehicle.index() as usize);
+                    let state = slot.state.as_mut().unwrap();
+                    state.progress_mm = progress_mm;
+                    state.speed_mm_s = speed_mm_s;
+                    state.carry_um = carry_um;
+                }
+                world.state.invalidate_occupancy_source();
+                world.state.rebuild_occupancy_index().unwrap();
+                if progress_mm > 20_000 {
+                    let before = world.capture_snapshot().unwrap();
+                    assert_eq!(
+                        world.reserve_parking(vehicle, target),
+                        Err(ParkingError::EntryNotForwardReachable)
+                    );
+                    assert_eq!(world.capture_snapshot().unwrap(), before);
+                    continue;
+                }
+                world.reserve_parking(vehicle, target).unwrap();
+                assert_eq!(world.vehicle(vehicle).unwrap().carry_um(), carry_um);
+                assert_eq!(
+                    world.parking_arrived(vehicle, target.target()),
+                    progress_mm == 20_000 && speed_mm_s == 0
+                );
+                if progress_mm < 20_000 || speed_mm_s > 0 {
+                    let before = world.capture_snapshot().unwrap();
+                    assert_eq!(
+                        world.park_vehicle(vehicle, target.target()),
+                        Err(ParkingError::NotArrived)
+                    );
+                    assert_eq!(world.capture_snapshot().unwrap(), before);
+                } else {
+                    let bytes = crate::encode_lfrs(&world.capture_snapshot().unwrap());
+                    let restored = crate::restore_lfrs(
+                        &bytes,
+                        world.revision(),
+                        world.committed_source().clone(),
+                        world.config(),
+                        world.execution_config(),
+                        crate::SnapshotRestoreLimits::new(1_048_576, 1_024),
+                    )
+                    .unwrap();
+                    let loaded = restored.world();
+                    let restored_vehicle = loaded.live_vehicles()[0];
+                    assert_eq!(
+                        loaded.vehicle(restored_vehicle).unwrap().carry_um(),
+                        carry_um
+                    );
+                    assert!(loaded.parking_arrived(restored_vehicle, target.target()));
+                    world.park_vehicle(vehicle, target.target()).unwrap();
+                    let state = world.vehicle(vehicle).unwrap();
+                    assert_eq!(state.status(), VehicleStatus::Parked);
+                    assert_eq!(state.carry_um(), 0);
+                }
+            }
+        }
     }
 
     fn overwrite_binding(

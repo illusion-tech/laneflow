@@ -68,9 +68,7 @@ impl Driver {
                 .map_err(|e| failure("验证会话步进发起", e))?;
         }
         self.sample_mut()
-            .world
             .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
-            .map_err(|e| failure("step", e))
     }
     fn commands(
         &mut self,
@@ -130,17 +128,16 @@ impl Driver {
     fn finish(&self, plan: &Plan) -> Result<(), Error> {
         match self {
             Self::Burst(b) => b.finish(plan),
-            Self::Simple(s) if plan.identity.lane_change().is_some() => {
-                // L 族：全体换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
-                require(
-                    s.crossed.iter().enumerate().all(|(rank, &crossed)| {
+            Self::Simple(s) if plan.identity.lane_change().is_some() => require(
+                s.lane_change_last_kind.iter().all(|&kind| kind == 12)
+                    && s.crossed.iter().enumerate().all(|(rank, &crossed)| {
                         crossed
-                            == s.lane_change_routes
-                                .contains(&(s.state.vehicles[rank].route_rank as usize))
+                            == s.state.routes[s.state.vehicles[rank].route_rank as usize]
+                                .handoff
+                                .is_some()
                     }),
-                    || "换道族完整窗口过门次数不符".into(),
-                )
-            }
+                || "换道簇未完成两次前杠交接和车尾清空，或背景车辆意外换边".into(),
+            ),
             Self::Simple(s) => require(
                 s.crossed
                     .iter()
@@ -238,18 +235,8 @@ impl Records {
         self.trace.write_all(digest.as_bytes())?;
         self.trace_count += 1;
         if tick.is_multiple_of(1_024) || tick == total {
-            let point = match world.capture_snapshot() {
-                Ok(_) => json!({"tick":tick,"command_cursor":world.command_cursor(),
-                    "state_digest":state_digest(world)?}),
-                Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(_)) => {
-                    // 面 B（#1218/#1217）：T 裁决/历史拍保存必须结构化拒绝；
-                    // 记录拒绝变体 + 真实资源身份/历史投影。
-                    json!({"tick":tick,"command_cursor":world.command_cursor(),
-                        "persistence_refused":crate::lane_change_refusal_variant(driver.sample())?,
-                        "t_state":crate::lane_change_t_state(driver.sample())})
-                }
-                Err(other) => return Err(failure("checkpoint capture", other)),
-            };
+            let point = json!({"tick":tick,"command_cursor":world.command_cursor(),
+                "state_digest":state_digest(world)?});
             self.checkpoints.push(point);
             self.trace.flush()?;
             self.journal.output.flush()?;
@@ -285,26 +272,16 @@ fn read(path: &Path) -> Result<Value, Error> {
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 
-/// 末态记录（#1218）：W 族 = 规范状态投影 + 宿主累计；L 族 = 面 B 记录
-///（结构化拒绝变体 + 真实资源身份/历史投影）+ 宿主累计。
+/// 保存规范末态，以及从开始边界延续的宿主观测。
 fn final_record(plan: &Plan, driver: &Driver, records: &Records) -> Result<Value, Error> {
-    // 参考、续跑与探针共同经过此处：超 profile 减速未归因时不产生末态记录，
-    // 与普通运行回执同一前置条件（#1487）。
     driver.sample().deceleration.receipt()?;
+    let mut record = json!({"state":state::projection(driver.sample())?,"host":driver.final_host(),
+        "command_count":records.journal.count,"blocked":records.journal.blocked,
+        "verification":driver.verification_final()?});
     if plan.identity.lane_change().is_some() {
-        Ok(
-            json!({"face_b":{"persistence_refused":crate::lane_change_refusal_variant(driver.sample())?,
-            "t_state":crate::lane_change_t_state(driver.sample())},
-            "host":driver.final_host(),"command_count":records.journal.count,"blocked":records.journal.blocked,
-            "verification":driver.verification_final()?}),
-        )
-    } else {
-        Ok(
-            json!({"state":state::projection(driver.sample())?,"host":driver.final_host(),
-            "command_count":records.journal.count,"blocked":records.journal.blocked,
-            "verification":driver.verification_final()?}),
-        )
+        record["handoff_journal"] = json!(driver.sample().lane_change_journal);
     }
+    Ok(record)
 }
 
 fn validate_implementation(implementation: &str) -> Result<(), Error> {
@@ -320,9 +297,8 @@ fn validate_implementation(implementation: &str) -> Result<(), Error> {
 fn positions(plan: &Plan, probe: bool) -> [(u64, bool); 2] {
     let w = plan.warm_up_ticks;
     match &plan.identity.case {
-        Case::W1 | Case::W2 | Case::LaneChange(_) => {
-            [(w, false), (if probe { w + 128 } else { 2 * w }, false)]
-        }
+        Case::LaneChange(_) => [(w, false), (w + plan.observation_ticks - 1, false)],
+        Case::W1 | Case::W2 => [(w, false), (if probe { w + 128 } else { 2 * w }, false)],
         Case::W3 => [(w + 1, false), (w + 1, true)],
         Case::W4 => [(w, false), (w + 1, false)],
     }

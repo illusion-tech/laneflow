@@ -1,5 +1,4 @@
-//! 新生成的运动安全准入。只在 `spawn_vehicle` 与 `replace_completed_vehicle`
-//! 提交前使用；快照恢复和修订切换不调用。
+//! 生成与替换车辆的运动安全准入。停车驶出复用其中的横移保护区间及制动距离检查。
 
 use std::cell::Cell;
 use std::cmp::Reverse;
@@ -518,6 +517,19 @@ impl crate::kernel::state::WorldState {
             .expect("未停车校验已经解析过车辆 profile");
         let emergency = profile.emergency_decel();
         let cursor = usize::try_from(input.route_edge_index()).expect("route index fits usize");
+        if !self.committed.handoffs.is_empty() {
+            let route = self.compiled_route(input.route()).expect("validated route");
+            if self.placement_conflicts_with_handoff(
+                route,
+                cursor,
+                input.progress_mm(),
+                vehicle_length_mm,
+                input.profile(),
+                input.initial_speed_mm_s(),
+            ) {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            }
+        }
         if let Some(distance_mm) = self.restrictive_stop_mm(
             input.route(),
             input.route_edge_index(),
@@ -536,12 +548,6 @@ impl crate::kernel::state::WorldState {
         ) {
             return Err(FreshAdmissionFailure::DownstreamSpeed);
         }
-        // E域②（#1199 P2-7）：fresh-motion 准入含过渡资源——spawn 位周邻
-        // transition 边存在 committed T-cell 预约（他人持约）时拒绝（无门
-        // hop 的 T-cell 约束；fail-closed）。
-        if self.fresh_transition_reservation_blocks(input) {
-            return Err(FreshAdmissionFailure::StopConstraint);
-        }
         if self.yield_occupancy_rebuild() {
             return Err(FreshAdmissionFailure::OccupancyYield);
         }
@@ -556,36 +562,65 @@ impl crate::kernel::state::WorldState {
         self.admit_direct_followers(input, vehicle_length_mm, delta_s)
     }
 
-    /// E域②（#1199 P2-7）：spawn 位周邻 transition 边的 committed T-cell
-    /// 预约检查（任一预约持有该 T 即阻断——spawn 前 handle 未定、以"存在
-    /// 预约即拒"fail-closed 保守判）。
-    fn fresh_transition_reservation_blocks(&self, input: VehicleSpawnInput) -> bool {
-        let traffic = self.binding.revision.traffic();
-        let Some(edges) = self.route_edges(input.route()) else {
+    /// 生成、替换与驶出都须证明车身未占用横移保护，且能在前方保护入口前留足停车间距。
+    pub(super) fn placement_conflicts_with_handoff(
+        &self,
+        route: &super::tables::CompiledRoute,
+        cursor: usize,
+        front: u32,
+        length: u32,
+        profile: VehicleProfileOrdinal,
+        speed_mm_s: u32,
+    ) -> bool {
+        if self.committed.handoffs.is_empty() {
+            return false;
+        }
+        let mut overlaps = false;
+        let walked = for_each_admission_interval(
+            self.binding.revision.traffic().lane_lengths_millimetres(),
+            &route.edges,
+            cursor,
+            front,
+            length,
+            |edge, lo, hi| {
+                overlaps |= self.committed.handoffs.iter().any(|h| {
+                    h.protections.iter().any(|p| {
+                        p.edge == edge
+                            && lo < p.end_mm
+                            && (hi > p.start_mm || (lo == hi && hi == p.start_mm))
+                    })
+                });
+            },
+        );
+        if walked.is_none() || overlaps {
+            return true;
+        }
+        let Some(room_mm) = super::handoff::execution::reservation_distance(
+            self.committed.handoffs.iter(),
+            route,
+            None,
+            cursor,
+            front,
+        ) else {
+            return false;
+        };
+        let Some(profile) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(profile)
+        else {
             return true;
         };
-        let cursor = input.route_edge_index() as usize;
-        let start = cursor.saturating_sub(1);
-        let end = (cursor + 2).min(edges.len());
-        let read = crate::kernel::conflict::ConflictRead::new(
-            &self.committed.conflict,
-            &self.derived.conflict,
-            &self.workspace.conflict,
+        let required = super::handoff::braking::service_stop_distance_um(
+            speed_mm_s,
+            self.binding.config.fixed_delta_time_ms(),
+            profile.comfort_decel(),
+            profile.min_gap_mm(),
         );
-        for edge in &edges[start..end] {
-            if !traffic.is_lateral_transition_segment(*edge) {
-                continue;
-            }
-            let address = crate::ConflictPassageAddress::new_transition(
-                *edge,
-                laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0),
-                0,
-            );
-            if read.cell_reserved(address) {
-                return true;
-            }
-        }
-        false
+        // 即使车型允许零间距，前杠触及入口也已经占用该毫米。
+        room_mm == 0 || required.is_none_or(|um| um > u64::from(room_mm) * 1_000)
     }
 
     /// 索引脏时只在这一批的第一次生成补齐，后面的车走已经建好的树。
@@ -1609,7 +1644,7 @@ impl crate::kernel::state::WorldState {
                 {
                     note_reserve(&mut zones, 1)?;
                     note_reserve(&mut streams, 1)?;
-                    zones.push(entry.static_zone().map_or(usize::MAX, |z| z.index()));
+                    zones.push(entry.zone.index());
                     streams.push(entry.stream);
                 }
                 let waiting_here = compiled.waiting.iter().find(|entry| entry.entry_hop == hop);
@@ -2088,12 +2123,7 @@ impl crate::kernel::state::WorldState {
                 continue;
             };
             for entry in &compiled.conflicts {
-                // P2-1（#1199）：过渡出现记录不入静态 zone 路线索引（static_
-                // zone 空→usize::MAX 污染查表→ensure 恒 false→materialize
-                // 退化）——索引只收静态 zone 出现记录。
-                let Some(zone) = entry.static_zone() else {
-                    continue;
-                };
+                let zone = entry.zone;
                 let Some(count) = offsets.get_mut(zone.index()) else {
                     return false;
                 };
@@ -2124,10 +2154,7 @@ impl crate::kernel::state::WorldState {
                 return false;
             };
             for entry in &compiled.conflicts {
-                // P2-1：过渡出现记录不入索引（同上）。
-                let Some(zone) = entry.static_zone() else {
-                    continue;
-                };
+                let zone = entry.zone;
                 let cursor = &mut offsets[zone.index()];
                 zone_routes[*cursor as usize] = route;
                 *cursor += 1;
@@ -3191,10 +3218,7 @@ impl crate::kernel::state::WorldState {
             self.push_waiting_entrants(zone, &mut handles)?;
         }
         for (address, _) in &notes.cells {
-            let zone_slot = self
-                .read_view()
-                .conflict_read()
-                .resource_slot_index(address.resource());
+            let zone_slot = address.zone().index();
             let filled = self.materialize_zone(zone_slot);
             self.materialized(filled)?;
             self.push_zone_contenders(zone_slot, &mut handles)?;

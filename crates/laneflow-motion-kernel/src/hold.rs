@@ -93,44 +93,6 @@ pub fn stop_distance_um(speed_mm_s: u32, decel: f32) -> u64 {
     braking_distance_to_speed_um(speed_mm_s, 0, decel)
 }
 
-/// 过渡耗尽行按实际走完的硬空间清除余数。保留该边界允许、且仍停得进
-/// 拍末跟车停车界的最高速度。无跟车保持义务时沿用过渡的耗尽速度。
-#[must_use]
-pub fn follower_exhausted_speed(
-    cap_mm_s: u32,
-    start_speed_mm_s: u32,
-    emergency_decel: f32,
-    follower_room_um: u64,
-    start_carry_um: u16,
-    hard_room_mm: u32,
-) -> u32 {
-    if follower_room_um == NO_FOLLOWER_ROOM {
-        return cap_mm_s;
-    }
-    // 原始间距扣除容差后按整毫米计，余数小于 1 mm。饱和所得的零界
-    // 代表该整毫米空间已经为零，清除余数也不会产生可用行程。
-    let before_carry = if follower_room_um == 0 {
-        0
-    } else {
-        follower_room_um.saturating_add(u64::from(start_carry_um))
-    };
-    let remaining = before_carry.saturating_sub(u64::from(hard_room_mm) * 1_000);
-    let fits = |q| stop_distance_um(q, emergency_decel) <= remaining;
-    if fits(cap_mm_s) || stop_distance_um(start_speed_mm_s, emergency_decel) > follower_room_um {
-        return cap_mm_s;
-    }
-    let (mut low, mut high) = (0, cap_mm_s);
-    while low < high {
-        let mid = low + (high - low).div_ceil(2);
-        if fits(mid) {
-            low = mid;
-        } else {
-            high = mid - 1;
-        }
-    }
-    low
-}
-
 /// 按 `decel` 的精确二进制值匀减速，从 `from_mm_s` 降到 `limit_mm_s` 所需的行程，
 /// 向上取整到微米。速度已达标时返回零，须减速但减速度无效或距离超界时返回 `u64::MAX`。
 #[must_use]
@@ -618,6 +580,14 @@ mod tests {
 
     #[test]
     fn far_targets_and_unstoppable_vehicles_have_no_obligation() {
+        let follower = HoldState {
+            feasible_follower_room_um: 1,
+            ..state(1_000, 0, 2.0, 4.0, 100)
+        };
+        assert_eq!(
+            hold_stop_feasibility(&follower, [NO_HOLD_TARGET; HOLD_TARGETS], 600, 80_000),
+            None
+        );
         assert_eq!(
             hold_stop_feasibility(
                 &state(10_000, 0, 2.0, 6.0, 16),

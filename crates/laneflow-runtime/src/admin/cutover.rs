@@ -497,6 +497,9 @@ pub enum CutoverError {
     /// 属防御深度，语义上不可达）。
     #[error("路线对 target 修订重编译失败")]
     RouteRevalidationFailed,
+    /// 已提交的横移或其物理保护仍在生效，跨修订无法直移。
+    #[error("车辆仍有活动横移或换道预约")]
+    ActiveHandoff,
     /// 晋升后占用索引重建失败（同修订不变量下语义上不可达）。
     #[error("占用索引重建失败")]
     OccupancyRebuild(#[from] StepError),
@@ -537,9 +540,9 @@ pub enum CutoverError {
         /// base 侧参与者类别序数原始值。
         base_class: u32,
     },
-    /// 重绑后非法：车辆原样重绑违反 target 修订不变量（进度越界、超速、
-    /// 后缀访问被拒或与其它迁移车辆重叠）。
-    #[error("车辆原样重绑违反 target 不变量（车辆序数 {vehicle}）")]
+    /// 车辆的遍历或等待状态无法解析到已登记的路线与门控，或重绑后违反
+    /// target 修订的不变量（进度越界、超速、后缀访问被拒或车辆重叠）。
+    #[error("车辆迁移状态验证失败（车辆序数 {vehicle}）")]
     VehicleRevalidationFailed {
         /// 违反不变量的车辆槽位序数。
         vehicle: u32,
@@ -579,12 +582,6 @@ pub enum CutoverError {
     /// 迁移增量日志溢出（粘性失败；事务放弃，旧世界不受影响）。
     #[error("迁移增量日志溢出")]
     JournalOverflow,
-    /// 迁移/日志域无法忠实表达的过渡状态（#1217 D3/D4：静态面遇
-    /// `Transition` 失败关闭）。与 `JournalOverflow`、
-    /// `ConflictRevalidationFailed` 严格区分——健康世界的正常运行态，
-    /// 不是容量或证明失败；事务整体放弃，旧世界照常可运行。
-    #[error(transparent)]
-    UnsupportedTransitionState(crate::UnsupportedTransitionState),
     /// 追赶滞后（tick 距离）超过上限。
     #[error("追赶滞后 {lag} tick 超过上限 {limit}")]
     CatchUpLagExceeded {
@@ -831,15 +828,44 @@ impl TrafficWorld {
         let mut staged_conflict_occurrence_count = 0_u64;
         for (index, slot) in self.state.committed.routes.iter().enumerate() {
             if let Some(compiled) = slot.compiled.as_ref() {
-                let staged_route = compile_route(
-                    target_revision.as_ref(),
-                    compiled.edges.as_slice(),
-                    staged_conflict_occurrence_count,
-                    self.state
-                        .binding
-                        .config
-                        .route_conflict_occurrence_capacity(),
-                )
+                let capacity = self
+                    .state
+                    .binding
+                    .config
+                    .route_conflict_occurrence_capacity();
+                let staged_route = if compiled.handoff_windows().is_empty() {
+                    compile_route(
+                        &target_revision,
+                        &compiled.edges,
+                        staged_conflict_occurrence_count,
+                        capacity,
+                    )
+                } else {
+                    let mut windows = Vec::new();
+                    windows
+                        .try_reserve_exact(compiled.handoff_windows().len())
+                        .map_err(|_| CutoverError::StagingAllocFailed)?;
+                    for &(index, old) in compiled.handoff_windows() {
+                        let stable = crate::StableRouteHandoffWindow::from_binding(
+                            &self.state.binding.revision,
+                            index,
+                            old,
+                        )
+                        .ok_or(CutoverError::RouteRevalidationFailed)?;
+                        windows.push(
+                            stable
+                                .occurrence(&target_revision)
+                                .ok_or(CutoverError::RouteRevalidationFailed)?,
+                        );
+                    }
+                    CompiledRoute::compile_handoffs(
+                        &target_revision,
+                        &compiled.edges,
+                        &windows,
+                        staged_conflict_occurrence_count,
+                        capacity,
+                    )
+                }
                 .map_err(|error| match error {
                     RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
                     RouteError::ConflictOccurrenceCapacityExceeded {
@@ -937,7 +963,10 @@ impl TrafficWorld {
         if !self.state.waiting_state_valid() || !self.state.waiting_snapshot_storage_valid() {
             return Err(CutoverError::WaitingRevalidationFailed);
         }
-        if !self.state.conflict_state_valid() {
+        if !self.state.validate_restored_handoffs() {
+            return Err(CutoverError::RouteRevalidationFailed);
+        }
+        if !self.state.conflict_state_valid() || self.state.conflict_platoons_valid() != Ok(true) {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
         for handle in self.state.committed.live_order.iter().copied() {

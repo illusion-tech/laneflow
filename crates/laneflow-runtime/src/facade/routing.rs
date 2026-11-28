@@ -1,7 +1,7 @@
 //! 宿主 Routing 与 Traffic Runtime 的纯契约边界（#303 G2）。
 //!
 //! Runtime 不接收、保存或解释动态成本 payload。它只验证候选复制的绑定，
-//! 将 LaneEdge 稳定标识解析为当前修订 ordinal，并进入唯一的路线注册/编译路径。
+//! 解析当前修订的 LaneEdge 稳定标识和出现对的物理窗口，再交给同一条路线注册路径。
 
 use laneflow_static_contract::{
     LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, Sha256Digest, StableId128,
@@ -391,6 +391,7 @@ impl RoutingAdmissionSession {
 pub struct CandidateRouteInput {
     cost_snapshot: DynamicCostSnapshotBinding,
     lane_edges: Box<[StableId128]>,
+    handoffs: Box<[crate::StableRouteHandoffWindow]>,
 }
 
 impl CandidateRouteInput {
@@ -403,7 +404,21 @@ impl CandidateRouteInput {
         Self {
             cost_snapshot,
             lane_edges: lane_edges.into().into_boxed_slice(),
+            handoffs: Box::default(),
         }
+    }
+
+    /// 随稳定边序列传递按源出现下标标识的交接窗口。
+    #[must_use]
+    pub fn with_handoffs(mut self, windows: Vec<crate::StableRouteHandoffWindow>) -> Self {
+        self.handoffs = windows.into_boxed_slice();
+        self
+    }
+
+    /// 按路线出现顺序读取所声明的物理窗口。
+    #[must_use]
+    pub fn handoffs(&self) -> &[crate::StableRouteHandoffWindow] {
+        &self.handoffs
     }
 
     /// 候选复制的动态成本快照来源绑定。
@@ -476,13 +491,14 @@ pub enum CandidateRouteError {
 
 /// 回放/恢复使用的规范化已准入路线注册输入。
 ///
-/// 宿主耐久路线 ID 由宿主命令序列拥有；Runtime 只消费修订绑定与稳定边序列，
+/// 宿主命令序列拥有耐久路线 ID。Runtime 消费修订绑定、有序稳定边和横向交接窗口，
 /// 并返回本次世界中的新 [`RouteHandle`] 供宿主回映。
 #[derive(Debug, Eq, PartialEq)]
 pub struct AdmittedRouteRegisterInput {
     network_revision: NetworkRevisionId,
     network_revision_derivation_version: u16,
     lane_edges: Box<[StableId128]>,
+    handoffs: Box<[crate::StableRouteHandoffWindow]>,
 }
 
 impl AdmittedRouteRegisterInput {
@@ -497,7 +513,21 @@ impl AdmittedRouteRegisterInput {
             network_revision,
             network_revision_derivation_version,
             lane_edges: lane_edges.into().into_boxed_slice(),
+            handoffs: Box::default(),
         }
+    }
+
+    /// 随稳定边序列传递有向交接窗口。绑定到同一修订后的出现下标。
+    #[must_use]
+    pub fn with_handoffs(mut self, windows: Vec<crate::StableRouteHandoffWindow>) -> Self {
+        self.handoffs = windows.into_boxed_slice();
+        self
+    }
+
+    /// 按路线出现顺序读取所声明的物理窗口。
+    #[must_use]
+    pub fn handoffs(&self) -> &[crate::StableRouteHandoffWindow] {
+        &self.handoffs
     }
 
     /// 准入时验证过的路网修订标识。
@@ -636,7 +666,8 @@ impl crate::kernel::state::WorldState {
                     CandidateRouteError::UnknownLaneEdge { stable_id }
                 }
             })?;
-        self.register_route_edges(&resolved).map_err(Into::into)
+        self.register_with_stable_windows(&resolved, &input.handoffs)
+            .map_err(Into::into)
     }
 
     /// 重放/恢复规范化的已准入路线命令；不调用 Routing、不接收旧成本绑定。
@@ -674,7 +705,30 @@ impl crate::kernel::state::WorldState {
                     AdmittedRouteRegisterError::UnknownLaneEdge { stable_id }
                 }
             })?;
-        self.register_route_edges(&resolved).map_err(Into::into)
+        self.register_with_stable_windows(&resolved, &input.handoffs)
+            .map_err(Into::into)
+    }
+
+    fn register_with_stable_windows(
+        &mut self,
+        edges: &[LaneEdgeOrdinal],
+        windows: &[crate::StableRouteHandoffWindow],
+    ) -> Result<RouteHandle, RouteError> {
+        if windows.is_empty() {
+            return self.register_route_edges(edges);
+        }
+        if windows.len() >= edges.len() {
+            return Err(RouteError::InvalidHandoffWindow);
+        }
+        let mut occurrences = crate::kernel::tables::try_route_vec(windows.len())?;
+        for window in windows {
+            occurrences.push(
+                window
+                    .occurrence(&self.binding.revision)
+                    .ok_or(RouteError::InvalidHandoffWindow)?,
+            );
+        }
+        self.register_route_occurrences(edges, &occurrences)
     }
 
     fn resolve_stable_lane_edges(

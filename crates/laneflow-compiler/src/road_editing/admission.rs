@@ -42,7 +42,7 @@ use crate::{
 };
 
 const ROAD_EDITING_FRONTEND_VERSION: u32 = 8;
-const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 4;
+const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 5;
 const ROAD_EDITING_FRONTEND_OPTIONS_DOMAIN: &[u8] = b"laneflow.road-editing.frontend-options.v1\0";
 const ARC_ALLOCATION_HEADER_BYTES: u64 = (core::mem::size_of::<usize>() as u64).saturating_mul(2);
 // v1 闭合属性路径表小于 512 项、每项最多四步。固定部分和输入相关的唯一
@@ -728,12 +728,7 @@ fn lower_verified_source(
         .max(controlled_live_bytes)
         .max(counts.preflight_peak_scratch_bytes());
     debug_assert!(
-        controlled_live_bytes
-            <= preallocation_live_bytes
-                .saturating_add(size_bytes::<CanonicalPoint3F32Input>(geometry_point_count))
-                .saturating_add(size_bytes::<CompiledGeometrySourceRange>(
-                    geometry_source_range_count,
-                )),
+        controlled_live_bytes <= preallocation_live_bytes.saturating_add(geometry_output_bytes),
         "retained RoadEditingSource payload exceeded its preallocation upper bound"
     );
     let typed_ast = TypedAstModule {

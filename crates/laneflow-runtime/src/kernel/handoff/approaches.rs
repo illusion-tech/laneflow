@@ -2,7 +2,10 @@ use std::ops::RangeInclusive;
 
 use laneflow_static_network::{
     StationCandidates,
-    vehicle::{Failure, GeometryWorkLimits, HandoffOutcome, HandoffTravelTarget, TRACK_WORK_LIMIT},
+    vehicle::{
+        Failure, GeometryWorkLimits, HandoffOutcome, HandoffStationRange, HandoffTravelTarget,
+        TRACK_WORK_LIMIT,
+    },
 };
 use thiserror::Error;
 
@@ -12,7 +15,7 @@ use super::{
 };
 use crate::TrafficWorld;
 
-/// 外部候选的一段连续运动在当前提交态遇到的普通车辆制动约束。
+/// 外部候选的一段连续运动在当前提交态遇到的占用与制动约束。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RouteHandoffApproaches {
     /// 源、目标侧可能被整个运动过程扫及的边内闭区间。外包相交表示可能阻挡。
@@ -34,7 +37,7 @@ pub enum RouteHandoffApproachError {
     /// 原轨迹尚未证明可用。
     #[error("候选没有可验证的交接轨迹：{0:?}")]
     Unlocated(HandoffOutcome),
-    /// 后轴累计行程倒序，或微米值超过逆查的纳米域。
+    /// 后轴累计行程倒序或超过可表示的查询范围。
     #[error("候选的累计后轴行程区间无效")]
     InvalidTravelRange,
     /// 无法在预算和指定容差内定位两端。
@@ -61,43 +64,42 @@ pub enum RouteHandoffApproachError {
 impl LocatedTrajectory<'_> {
     fn rear_stations_over_travel(
         &self,
-        travel_um: RangeInclusive<u64>,
-        tolerance_nm: u64,
+        travel_mm: RangeInclusive<u64>,
+        tolerance_mm: u64,
         track_limit: u32,
-    ) -> Result<([u64; 2], u32), RouteHandoffApproachError> {
-        if travel_um.is_empty() {
+    ) -> Result<(HandoffStationRange, u32), RouteHandoffApproachError> {
+        if travel_mm.is_empty()
+            || !HandoffTravelTarget::DistanceMm(*travel_mm.end()).is_representable()
+        {
             return Err(RouteHandoffApproachError::InvalidTravelRange);
         }
-        let (start, end) = travel_um.into_inner();
-        let end_nm = end
-            .checked_mul(1_000)
-            .ok_or(RouteHandoffApproachError::InvalidTravelRange)?;
+        let (start, end) = travel_mm.into_inner();
         let limit = track_limit.min(TRACK_WORK_LIMIT);
         let mut used = 0;
-        let mut locate = |distance_nm| {
+        let mut locate = |distance_mm| {
             let report = self.revision.handoff_travel(
                 &self.query,
                 self.window,
-                HandoffTravelTarget::DistanceNm(distance_nm),
-                tolerance_nm,
+                HandoffTravelTarget::DistanceMm(distance_mm),
+                tolerance_mm,
                 limit - used,
             );
             used += report.work;
             report
                 .bounds
-                .map(|v| v.rear_stations_nm)
+                .map(|v| v.rear)
                 .map_err(|reason| RouteHandoffApproachError::Travel { reason, work: used })
         };
-        let first = locate(start * 1_000)?;
-        let last = if start == end { first } else { locate(end_nm)? };
+        let first = locate(start)?;
+        let last = if start == end { first } else { locate(end)? };
         // 累计行程沿候选严格递增；绝对走廊站位沿同一方向单调，在反向车道数值递减。
-        Ok(([first[0].min(last[0]), first[1].max(last[1])], used))
+        Ok((first.hull(last), used))
     }
 }
 
 impl TrafficWorld {
-    /// 核对外部候选在一段后轴累计行程中连续扫过的两侧及当前普通车辆能否让行。
-    /// `travel_um` 是从同一候选起点算起的有序闭区间，单位微米，反向行驶同样递增。
+    /// 核对外部候选在一段后轴累计行程中连续扫过的两侧及其他活动车辆能否让行。
+    /// `travel_mm` 是从同一候选起点算起的有序闭区间，单位毫米，反向行驶同样递增。行程求界容差取正整数毫米。
     /// 路线与整条候选的准入复用逐出现试算。随后两端逆查共用一次轨迹预算，连续扫过
     /// 单独使用一次扫过预算。进入者查询受 `entrant_work_limit` 约束，包含所有已提交
     /// 活动车辆，适用于尚未进入世界的候选。结果不含信号、下游清空或同拍其他预约的裁决。
@@ -114,8 +116,8 @@ impl TrafficWorld {
         binding: &BoundRouteHandoff,
         source_index: u32,
         trial: &RouteHandoffTrial,
-        travel_um: RangeInclusive<u64>,
-        tolerance_nm: u64,
+        travel_mm: RangeInclusive<u64>,
+        tolerance_mm: std::num::NonZeroU32,
         entrant_work_limit: u32,
     ) -> Result<RouteHandoffApproaches, RouteHandoffApproachError> {
         let preview = self.preview_route_handoff_at(binding, source_index, trial)?;
@@ -125,7 +127,7 @@ impl TrafficWorld {
             .ok_or(RouteHandoffApproachError::Unlocated(preview.report.outcome))?;
         let GeometryWorkLimits { tracks, sweep } = trial.limits;
         let (stations, travel_work) =
-            path.rear_stations_over_travel(travel_um, tolerance_nm, tracks)?;
+            path.rear_stations_over_travel(travel_mm, u64::from(tolerance_mm.get()), tracks)?;
         let report = path.revision.handoff_swept_occupancy(
             &path.query,
             path.window,

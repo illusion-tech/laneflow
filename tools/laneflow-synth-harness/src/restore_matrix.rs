@@ -145,7 +145,14 @@ fn check_report(
     let id = &report["input_manifest"]["identity"];
     let (warm, observation) = task.job.windows();
     let start = match task.job.case {
-        "W1" | "W2" | "L1" => {
+        "L1" => {
+            if task.checkpoint == Some(1) {
+                warm + observation - 1
+            } else {
+                warm
+            }
+        }
+        "W1" | "W2" => {
             if task.checkpoint == Some(1) {
                 if probe { warm + 128 } else { 2 * warm }
             } else {

@@ -136,6 +136,21 @@ pub(super) fn check_report(
             warm + observation,
         ]
     };
+    if job.case == "L1" {
+        use laneflow_synth_generator::{Case, Identity, LaneChangeParams, handoff};
+        let expected = Identity::new(
+            job.scale,
+            Case::LaneChange(LaneChangeParams {
+                clusters: 1,
+                changers_per_cluster: 2,
+            }),
+            job.dt,
+        )?;
+        if identity["case"] != serde_json::to_value(&expected.case)? {
+            return Err(invalid("换道簇身份与矩阵输入不符"));
+        }
+        handoff::check_history(checkpoints, &expected).map_err(invalid)?;
+    }
     for tick in ticks {
         let point = checkpoints
             .iter()
@@ -147,25 +162,9 @@ pub(super) fn check_report(
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         });
-        let refusal = point["persistence_refused"].as_str();
-        if job.case == "L1" {
-            // 双向钉边（#1218 面 A/面 B）：T-free 检查点必须成功捕获并携带
-            // 64-hex 摘要；终态拍（T 历史）必须结构化拒绝并携带真实身份投影。
-            let face_b = tick == warm + observation;
-            let valid = if face_b {
-                refusal.is_some() && point["t_state"].is_object() && point["state_digest"].is_null()
-            } else {
-                refusal.is_none() && point["t_state"].is_null() && has_digest
-            };
-            if !valid {
-                return Err(invalid(format!(
-                    "换道族检查点面不符（双向钉边）：{} tick={tick}",
-                    job.key()
-                )));
-            }
-        } else if refusal.is_some() || !has_digest {
+        if !has_digest {
             return Err(invalid(format!(
-                "状态检查点缺失或非法：{} tick={tick}",
+                "状态检查点缺少规范摘要：{} tick={tick}",
                 job.key()
             )));
         }

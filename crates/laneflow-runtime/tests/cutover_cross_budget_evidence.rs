@@ -191,7 +191,7 @@ fn world_with_fleet(ledger: &mut tick_ledger::TickLedger) -> TrafficWorld {
     world
 }
 
-fn prepare_transaction(world: &mut TrafficWorld) -> laneflow_runtime::CutoverTransaction {
+fn prepare_transaction(world: &mut TrafficWorld) -> laneflow_runtime::CutoverTransaction<'static> {
     world
         .prepare_cross_revision_cutover(
             build(ORACLE_TARGET),

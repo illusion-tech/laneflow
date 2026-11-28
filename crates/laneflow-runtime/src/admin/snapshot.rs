@@ -11,7 +11,9 @@ use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
 use thiserror::Error;
 
-use crate::kernel::conflict::UnsupportedTransitionState;
+pub(crate) mod handoff;
+
+use crate::kernel::conflict::RelativeDownstreamEnd;
 use crate::{
     CommittedNetworkSource, ParkingBinding, ParkingTarget, TrafficWorld, VehicleStatus, WorldConfig,
 };
@@ -19,9 +21,9 @@ use crate::{
 use crate::{WorldConfigInput, WorldId, WorldInstallInput};
 
 /// LFRS 容器格式版本（快照合同 §4）。
-pub const SNAPSHOT_FORMAT_VERSION: u32 = 7;
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 8;
 /// Runtime 逻辑状态形状轴（快照合同 §2 版本轴分离）。
-pub const RUNTIME_STATE_VERSION: u16 = 5;
+pub const RUNTIME_STATE_VERSION: u16 = 6;
 
 /// 快照局部标识的起点（1..=N 分配，0 保留为非法）。
 pub(crate) const FIRST_SNAPSHOT_ID: u64 = 1;
@@ -37,17 +39,13 @@ pub enum SnapshotCaptureError {
     /// 已提交 Conflict authority 不能由 reservation 级证明精确重建。
     #[error("已提交 Conflict authority 与路线证明不一致")]
     ConflictInvariantViolation,
+    /// 已提交的换道状态、游标或保护与登记窗口不一致。
+    #[error("已提交换道与路线或保护不一致")]
+    HandoffInvariantViolation,
     /// 直算摘要经 capture 助手的归一化 scratch 超出限额（仅直算路径透传；
     /// capture 路径预算无限，不会产生本变体）。
     #[error("直算摘要归一化 scratch 超出限额")]
     LimitExceeded,
-    /// 当前持久形制（LFRS 7 / runtime state 5）无法忠实表达的固定预制过渡状态（#1217）。
-    ///
-    /// 与 [`Self::ConflictInvariantViolation`] 严格区分：过渡状态是健康世界的
-    /// 正常运行态，不是 C(T) 失真；宿主不得按不变量破坏的停用/隔离处置处理，
-    /// 只应记录该检查点不可保存/不可摘要并继续使用世界。
-    #[error(transparent)]
-    UnsupportedTransitionState(#[from] UnsupportedTransitionState),
 }
 
 #[cfg(test)]
@@ -133,25 +131,11 @@ where
         .map_err(|_| SnapshotCaptureError::ReservationFailed)
 }
 
-/// 准入 hop → Gate 的持久化前统一解析（#1217；traversal / reservation /
-/// eligibility 三个准入身份槽共用一个口径）。
-///
-/// 判定键是**覆盖该 hop 的出现记录的资源种类**，不是「hop 能否解析出 Gate」：
-/// 横向过渡段（T）出现记录的 admission hop 是前驱边下标（`tables.rs` 出现记录发射
-/// 注释），无真实 Gate；混合 hop（同一 hop 同时覆盖 T 与静态出现记录）还可能巧合
-/// 解析到其他机动的 Gate——按解析结果放行即写入错误准入身份。含 `Transition`
-/// 覆盖（含混合）一律 [`UnsupportedTransitionState::AdmissionHopWithoutGate`]；
-/// 只覆盖静态出现记录而 hop 无 Gate 属编译期已排除的真不变量破坏，保留
-/// [`SnapshotCaptureError::ConflictInvariantViolation`] 语义（宿主处置不同，
-/// 不得与过渡拒绝混同）。解析为纯读、零分配。
+/// 将遍历、预约和资格引用的准入 hop 解析为持久化 Gate。
 fn persisted_admission_gate(
     compiled: &crate::kernel::tables::CompiledRoute,
-    maneuver_occurrence_index: u32,
     admission_hop: u32,
 ) -> Result<laneflow_static_contract::ManeuverGateOrdinal, SnapshotCaptureError> {
-    if compiled.admission_hop_transition_covered(maneuver_occurrence_index, admission_hop) {
-        return Err(UnsupportedTransitionState::AdmissionHopWithoutGate.into());
-    }
     compiled
         .hop_gate
         .get(usize::try_from(admission_hop).unwrap_or(usize::MAX))
@@ -201,6 +185,7 @@ pub struct CapturedRoute {
     pub(crate) snapshot_route_id: u64,
     /// 有序边稳定标识（替代 `LaneEdgeOrdinal`）。
     pub(crate) edges: Vec<ContractStableId128>,
+    pub(crate) windows: Vec<handoff::CapturedHandoffWindow>,
 }
 
 /// 快照车辆：局部 ID + 局部路线引用 + 路线序列下标与一维运动状态。
@@ -234,6 +219,7 @@ pub struct CapturedVehicle {
     pub(crate) conflict_eligibility: Option<CapturedConflictEligibility>,
     /// Crossing 后仍在 Clearing 的组合资源。
     pub(crate) conflict_reservation: Option<CapturedConflictReservation>,
+    pub(crate) handoffs: Vec<handoff::CapturedHandoff>,
 }
 
 /// 快照中的机动遍历阶段。
@@ -306,14 +292,6 @@ pub struct CapturedConflictPassage {
     pub(crate) clearance_progress_mm: u32,
 }
 
-/// 快照中的冲突下游区间：车道边上的毫米区间。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CapturedConflictDownstreamInterval {
-    pub(crate) lane_edge: ContractStableId128,
-    pub(crate) start_mm: u32,
-    pub(crate) end_mm: u32,
-}
-
 /// 快照中的冲突预约：获得刻度、机动锚点、通行段与下游区间集合。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CapturedConflictReservation {
@@ -322,7 +300,7 @@ pub struct CapturedConflictReservation {
     pub(crate) maneuver_entry_route_edge_index: u32,
     pub(crate) admission_gate: ContractStableId128,
     pub(crate) passages: Vec<CapturedConflictPassage>,
-    pub(crate) downstream_intervals: Vec<CapturedConflictDownstreamInterval>,
+    pub(crate) downstream_end: RelativeDownstreamEnd,
 }
 
 /// 快照中的冲突滞后状态：通行段定位值与滞后基准。
@@ -379,6 +357,12 @@ impl CapturedRoute {
     #[must_use]
     pub fn edges(&self) -> &[ContractStableId128] {
         &self.edges
+    }
+
+    /// 已登记的横向交接窗口，按源边在本路线中的出现下标排列。
+    #[must_use]
+    pub fn handoff_windows(&self) -> &[crate::StableRouteHandoffWindow] {
+        &self.windows
     }
 }
 
@@ -625,6 +609,28 @@ impl CapturedSnapshot {
 }
 
 impl crate::kernel::state::WorldState {
+    pub(super) fn validate_snapshot_authority(&self) -> Result<(), SnapshotCaptureError> {
+        let key = |h: &crate::kernel::handoff::execution::ActiveRouteHandoff| {
+            (h.vehicle.index(), h.source_index)
+        };
+        if self
+            .committed
+            .handoffs
+            .windows(2)
+            .any(|pair| key(&pair[0]) >= key(&pair[1]))
+            || !self.validate_restored_handoffs()
+        {
+            return Err(SnapshotCaptureError::HandoffInvariantViolation);
+        }
+        match self.conflict_platoons_valid() {
+            Ok(true) => Ok(()),
+            Err(crate::kernel::conflict::ConflictAcquireError::ScratchAllocFailed) => {
+                Err(SnapshotCaptureError::ReservationFailed)
+            }
+            _ => Err(SnapshotCaptureError::ConflictInvariantViolation),
+        }
+    }
+
     /// 在固定步进安全边界捕获快照点（快照合同 §5 单一时点）。
     ///
     /// 只读已提交状态，不改变世界、不推进游标；全部容量按计数可失败预留，
@@ -634,14 +640,11 @@ impl crate::kernel::state::WorldState {
     ///
     /// # Errors
     ///
-    /// 失败族三类：全部输出缓冲按计数可失败预留，任一预留失败返回
-    /// [`SnapshotCaptureError::ReservationFailed`]，世界无感知、宿主可直接重试；
-    /// 已提交 Conflict authority 无法由 reservation 级证明精确重建时返回
-    /// [`SnapshotCaptureError::ConflictInvariantViolation`]；当前持久形制无法
-    /// 忠实表达的过渡状态（#1217：准入 hop 无真实 Gate、过渡出现记录/清空历史行）
-    /// 返回 [`SnapshotCaptureError::UnsupportedTransitionState`]——整入口拒绝、
-    /// 零部分产物，世界照常可运行、可重试，且**不得**按不变量破坏处置。
+    /// 输出缓冲预留失败时返回 [`SnapshotCaptureError::ReservationFailed`]。
+    /// 路口预约或换道保护与已提交状态不一致时，分别返回
+    /// [`SnapshotCaptureError::ConflictInvariantViolation`] 或 [`SnapshotCaptureError::HandoffInvariantViolation`]。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
+        self.validate_snapshot_authority()?;
         let identity = self.binding.revision.identity();
         let mut capture_budget = crate::admin::snapshot_digest::NormalizationBudget::unlimited();
         let conflict_index_len = self.binding.config.vehicle_capacity() as usize;
@@ -765,16 +768,6 @@ impl crate::kernel::state::WorldState {
         let mut conflict_lag_states = Vec::new();
         capture_try_reserve_exact(&mut conflict_lag_states, conflict_lag_count)?;
         for (address, reference) in self.conflict_read().persisted_lag_rows() {
-            // 归属≠身份（#1217 P1-4）：过渡资源格的清空历史在 v7 表达不了资源
-            // 种类与 T 稳定边身份，整入口结构化拒绝——不替换身份、不静默丢历史。
-            if matches!(
-                address.resource(),
-                crate::kernel::conflict::ConflictResource::Transition(_)
-            ) {
-                return Err(SnapshotCaptureError::UnsupportedTransitionState(
-                    UnsupportedTransitionState::TransitionLagHistory,
-                ));
-            }
             let locator = self
                 .conflict_passage_locator(address)
                 .ok_or(SnapshotCaptureError::ConflictInvariantViolation)?;
@@ -827,9 +820,9 @@ impl crate::kernel::state::WorldState {
         let Some(slot) = self.committed.routes.get(slot_index) else {
             return Ok(None);
         };
-        if slot.compiled.is_none() {
+        let Some(compiled) = &slot.compiled else {
             return Ok(None);
-        }
+        };
         let handle = crate::RouteHandle::new(
             u32::try_from(slot_index).expect("route index fits u32"),
             slot.generation,
@@ -853,25 +846,33 @@ impl crate::kernel::state::WorldState {
                     .expect("live edge ordinal resolves to stable id"),
             );
         }
+        let mut windows = handoff::capture_rows(compiled.handoff_windows().len(), budget)?;
+        for &(index, binding) in compiled.handoff_windows() {
+            windows.push(
+                handoff::CapturedHandoffWindow::from_binding(
+                    &self.binding.revision,
+                    index,
+                    binding,
+                )
+                .ok_or(SnapshotCaptureError::HandoffInvariantViolation)?,
+            );
+        }
         Ok(Some(CapturedRoute {
             snapshot_route_id,
             edges,
+            windows,
         }))
     }
 
     /// 从 live 车辆槽位构造单条捕获记录（`capture_snapshot` 与直算摘要共用；
     /// 局部 ID 由调用方按 live 槽位序分配，`route_id_for` 解析所属路线的局部 ID，
     /// 其命中语义由调用方保证）。槽位无车辆时返回 `Ok(None)`；Conflict
-    /// authority 不变量破坏原样透传 [`SnapshotCaptureError::ConflictInvariantViolation`]；
-    /// 过渡状态（#1217）返回 [`SnapshotCaptureError::UnsupportedTransitionState`]，
-    /// 与不变量破坏严格区分。
+    /// authority 不变量破坏原样透传 [`SnapshotCaptureError::ConflictInvariantViolation`]。
     ///
     /// # Panics
     ///
     /// 与 `capture_snapshot` 相同：live 状态引用的路线 / 路由 / 稳定标识无法解析时 panic
     /// （capture 合同的前提，直算摘要入口以 `catch_unwind` 捕获该 panic 并报告不变量破坏）。
-    /// 过渡状态不经 panic：准入 hop 无真实 Gate、过渡出现记录行与过渡清空历史均以
-    /// 结构化错误返回（#1217，`catch_unwind` 只兜真 unwind）。
     pub(crate) fn captured_vehicle_at(
         &self,
         identity: &laneflow_static_network::SharedIdentityIndex,
@@ -972,13 +973,7 @@ impl crate::kernel::state::WorldState {
                             (CapturedManeuverTraversalPhase::Clearing, admission_gate_hop)
                         }
                     };
-                    // 准入身份槽统一口径（#1217）：过渡资源 hop 无真实 Gate，
-                    // 结构化拒绝而非 panic 或错绑（混合 hop 同拒）。
-                    let gate = persisted_admission_gate(
-                        compiled,
-                        traversal.maneuver_occurrence_index,
-                        phase_hop,
-                    )?;
+                    let gate = persisted_admission_gate(compiled, phase_hop)?;
                     Ok(CapturedManeuverTraversal {
                         maneuver_occurrence_index: traversal.maneuver_occurrence_index,
                         maneuver_path: *identity
@@ -1052,13 +1047,7 @@ impl crate::kernel::state::WorldState {
                         .maneuvers
                         .get(locator.maneuver_occurrence_index() as usize)
                         .expect("eligible maneuver occurrence exists");
-                    // 准入身份槽统一口径（#1217 D2 防御）：与 traversal/reservation 同一
-                    // 解析器，过渡资源 hop 一律结构化拒绝。
-                    let gate = persisted_admission_gate(
-                        compiled,
-                        locator.maneuver_occurrence_index(),
-                        locator.admission_gate_hop(),
-                    )?;
+                    let gate = persisted_admission_gate(compiled, locator.admission_gate_hop())?;
                     Ok(CapturedConflictEligibility {
                         maneuver_occurrence_index: locator.maneuver_occurrence_index(),
                         maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
@@ -1085,13 +1074,7 @@ impl crate::kernel::state::WorldState {
                     .maneuvers
                     .get(range.maneuver_occurrence_index() as usize)
                     .expect("reservation maneuver occurrence exists");
-                // 准入身份槽统一口径（#1217）：T 预约的 admission hop 是前驱边下标、
-                // 无真实 Gate，结构化拒绝（混合 hop 同拒）。
-                let gate = persisted_admission_gate(
-                    compiled,
-                    range.maneuver_occurrence_index(),
-                    range.admission_gate_hop(),
-                )?;
+                let gate = persisted_admission_gate(compiled, range.admission_gate_hop())?;
                 let mut passages = Vec::new();
                 budget
                     .charge_bytes_for_reserve(
@@ -1114,16 +1097,6 @@ impl crate::kernel::state::WorldState {
                         .conflicts
                         .get(conflict_occurrence_index as usize)
                         .expect("reservation occurrence exists");
-                    // 归属≠身份（#1217 P1-4）：过渡出现记录的持久行表达不了资源种类
-                    // 与 T 稳定边身份，整入口拒绝，不得以归属 (stream, zone) 顶替。
-                    if matches!(
-                        occurrence.resource,
-                        crate::kernel::conflict::ConflictResource::Transition(_)
-                    ) {
-                        return Err(SnapshotCaptureError::UnsupportedTransitionState(
-                            UnsupportedTransitionState::TransitionPassageRow,
-                        ));
-                    }
                     let locator = self
                         .conflict_passage_occurrence_locator(state.route, conflict_occurrence_index)
                         .expect("reservation occurrence resolves locator");
@@ -1136,19 +1109,6 @@ impl crate::kernel::state::WorldState {
                         clearance_progress_mm: occurrence.clearance.progress_mm,
                     });
                 }
-                let mut downstream_intervals = Vec::new();
-                budget
-                    .charge_bytes_for_reserve(
-                        core::mem::size_of::<CapturedConflictDownstreamInterval>(),
-                        usize::try_from(reservation.downstream_claim_count())
-                            .expect("downstream count fits usize"),
-                    )
-                    .map_err(|_| SnapshotCaptureError::LimitExceeded)?;
-                capture_try_reserve_exact(
-                    &mut downstream_intervals,
-                    usize::try_from(reservation.downstream_claim_count())
-                        .expect("downstream count fits usize"),
-                )?;
                 let mut committed_downstream = Vec::new();
                 budget
                     .charge_bytes_for_reserve(
@@ -1176,11 +1136,12 @@ impl crate::kernel::state::WorldState {
                 }
                 let mut derived_downstream = Vec::new();
                 let downstream_plan = self
-                    .reservation_downstream_claim_plan(range, state.length_mm)
+                    .reservation_downstream_claim_plan_to(
+                        range,
+                        state.length_mm,
+                        reservation.downstream_target(),
+                    )
                     .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
-                if downstream_plan.target() != reservation.downstream_target() {
-                    return Err(SnapshotCaptureError::ConflictInvariantViolation);
-                }
                 budget
                     .charge_bytes_for_reserve(
                         core::mem::size_of::<crate::DownstreamInterval>(),
@@ -1199,18 +1160,6 @@ impl crate::kernel::state::WorldState {
                 if committed_downstream != derived_downstream {
                     return Err(SnapshotCaptureError::ConflictInvariantViolation);
                 }
-                for interval in committed_downstream {
-                    downstream_intervals.push(CapturedConflictDownstreamInterval {
-                        lane_edge: *identity
-                            .stable_id(interval.edge())
-                            .expect("downstream edge resolves stable id")
-                            .as_untyped(),
-                        start_mm: interval.start_mm(),
-                        end_mm: interval.end_mm(),
-                    });
-                }
-                downstream_intervals
-                    .sort_unstable_by_key(|row| (row.lane_edge, row.start_mm, row.end_mm));
                 Some(CapturedConflictReservation {
                     acquired_tick: reservation.acquired_tick(),
                     maneuver_occurrence_index: range.maneuver_occurrence_index(),
@@ -1220,7 +1169,12 @@ impl crate::kernel::state::WorldState {
                         .expect("reservation Gate resolves stable id")
                         .as_untyped(),
                     passages,
-                    downstream_intervals,
+                    downstream_end: RelativeDownstreamEnd::from_range(
+                        compiled,
+                        range,
+                        reservation.downstream_target(),
+                    )
+                    .ok_or(SnapshotCaptureError::ConflictInvariantViolation)?,
                 })
             }
         };
@@ -1245,6 +1199,7 @@ impl crate::kernel::state::WorldState {
             waiting_membership,
             conflict_eligibility,
             conflict_reservation,
+            handoffs: self.capture_handoffs_for(state.handle, budget)?,
         }))
     }
 }
@@ -1259,12 +1214,9 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 失败族三类：全部输出缓冲按计数可失败预留，任一预留失败返回
-    /// [`SnapshotCaptureError::ReservationFailed`]，世界无感知、宿主可直接重试；
-    /// 已提交 Conflict authority 无法由 reservation 级证明精确重建时返回
-    /// [`SnapshotCaptureError::ConflictInvariantViolation`]；当前持久形制无法
-    /// 忠实表达的过渡状态（#1217）返回 [`SnapshotCaptureError::UnsupportedTransitionState`]，
-    /// 整入口拒绝、零部分产物，世界照常可运行，且**不得**按不变量破坏处置。
+    /// 输出缓冲预留失败时返回 [`SnapshotCaptureError::ReservationFailed`]。
+    /// 路口预约或换道保护与已提交状态不一致时，分别返回
+    /// [`SnapshotCaptureError::ConflictInvariantViolation`] 或 [`SnapshotCaptureError::HandoffInvariantViolation`]。
     ///
     /// # Panics
     ///
@@ -1280,7 +1232,7 @@ mod tests {
     use super::*;
     use crate::admin::cutover::tests::transaction_tests::world_with_vehicle;
     use crate::{ParkedVehicleSpawnInput, ParkingTarget, RouteRegisterInput, TickInput};
-    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v7 as wire;
+    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v8 as wire;
 
     #[test]
     fn capture_binds_cursors_config_and_origin() {

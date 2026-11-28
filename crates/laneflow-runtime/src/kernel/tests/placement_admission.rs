@@ -664,7 +664,14 @@ fn restore_keeps_a_state_fresh_spawn_rejects() {
         .with_open_entrance();
     restored
         .state
-        .restore_unparked_vehicle(blocked, 0, VehicleStatus::Active, None, None, false)
+        .restore_unparked_vehicle(
+            blocked,
+            0,
+            VehicleStatus::Active,
+            None,
+            None,
+            Default::default(),
+        )
         .expect("恢复不套用新鲜出生的运动安全");
     assert_eq!(restored.live_vehicles().len(), 2);
 }

@@ -1,7 +1,7 @@
-# LFCA 7 策略引用 fixture
+# LFCA 8 策略引用 fixture
 
 在既有 full-spatial 拓扑上，通过字段 writer 添加两份工程测试策略、一项依据、一项
-间隙参数、通行流规则与门规则。策略身份按 Identity v1 派生，新增行使用 LFCA 7
+间隙参数、通行流规则与门规则。策略身份按 Identity v1 派生，新增行使用 LFCA 8
 登记，NetworkRevision 和 chunk/object 摘要从最终字节重算。
 
 本 fixture 冻结字段与引用闭合。它不来自正式策略前端，不验证运行时规则覆盖、灯型解释

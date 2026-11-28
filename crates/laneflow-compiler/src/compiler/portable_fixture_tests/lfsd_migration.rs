@@ -385,7 +385,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/9fbdbf9bc802f2f63b7554ac09706db8b391a57baec43be6b78a8e096427fd3b"
+        "sha256/ef41e3355632fae6511d46928cbaf0b8fceaed0901598acd1fa826831bf92522"
     );
     assert_ne!(base.network_revision(), target.network_revision());
 
@@ -407,7 +407,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         otarget.semantic_diff().object_key(),
-        "sha256/3215584f6697d03c7a3f6eeaf780fbce046e7c3e9a6b5e9296c03ba99ff762ea"
+        "sha256/86e6ca70df9e080f9388b58088903282a47c9f626ca1f842fef7d273ab30488e"
     );
     assert_ne!(obase.network_revision(), otarget.network_revision());
 
@@ -431,7 +431,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         ptarget.semantic_diff().object_key(),
-        "sha256/b0bc304a02024fc040033a844b96ecdb4652a2e31c22aed6aefb49550f9c2ba3"
+        "sha256/a61c7cabe95c09fbfad9c0ff5f654f28b48eacd099a2238cfba2b05992fa627b"
     );
     assert_ne!(pbase.network_revision(), ptarget.network_revision());
 }

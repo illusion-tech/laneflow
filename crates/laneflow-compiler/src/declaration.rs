@@ -1015,6 +1015,7 @@ pub(crate) struct CompiledGeometrySourceRange {
 #[derive(Debug, PartialEq)]
 pub(crate) struct StationEdgeProof {
     pub origin: u64,
+    pub origin_error_mm: u32,
     pub corridor_length: u64,
     pub start: u64,
     pub start_error: u32,
@@ -1032,7 +1033,7 @@ pub(crate) struct StationChordProof {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct StationBandProof {
-    pub offsets_um: [i32; 4],
+    pub offsets_mm: [i32; 4],
     pub lateral_error: u32,
 }
 

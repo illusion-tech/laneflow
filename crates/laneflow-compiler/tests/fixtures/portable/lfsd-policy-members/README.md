@@ -1,4 +1,4 @@
-# LFSD 6 完整策略成员差异
+# LFSD 7 完整策略成员差异
 
 沿用 `lfca-policy-references` 的工程策略拓扑，target 分别修改 evidence locator、
 gap 数值、stream priority 和 gate prohibition；四个保留 K 各产生一次完整 Modify。
