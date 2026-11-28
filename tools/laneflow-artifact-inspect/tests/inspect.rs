@@ -142,7 +142,7 @@ fn row_range_filter_limits_field_expansion() {
 
 #[test]
 fn field_expansion_reports_truncation_under_row_budget() {
-    let lines: Vec<u32> = (0..100).collect();
+    let lines: Vec<u32> = (1..=100).collect();
     let bytes = lfsm_with_source_locations(&lines);
     let options = fields_options();
     let policy = DisplayPolicy {
@@ -201,7 +201,7 @@ fn section_filter_by_ordinal_and_name() {
 
 #[test]
 fn lfsd_embedded_member_row_expands_registered_bytes_only() {
-    let bytes = lfsd_with_evidence_change("k", "locator-a", "locator-a");
+    let bytes = lfsd_with_evidence_change("k", "locator-x", "locator-a");
     let options = fields_options();
     let policy = default_policy();
     let report = laneflow_artifact_inspect::inspect::inspect(
@@ -284,4 +284,34 @@ fn rendering_is_deterministic_for_fixed_input() {
         render_inspect(&report, &options, &policy)
     };
     assert_eq!(first, second, "同机重复渲染必须逐字节一致");
+}
+
+#[test]
+fn registry_valid_value_invalid_objects_fail_preflight() {
+    // #1605：结构层通过不等于检查通过，检视须与正式值域入口得出同一错误。
+    for mutation in common::value_domain_mutations() {
+        let limits = laneflow_format::FormatLimits::HARD;
+        if let Err(error) =
+            laneflow_format::preflight_object_registry(&mutation.bytes, mutation.kind, limits)
+        {
+            panic!("{}：registry 结构预检应通过：{error:?}", mutation.name);
+        }
+        let expected =
+            laneflow_format::preflight_object_values(&mutation.bytes, mutation.kind, limits)
+                .map(|_| ())
+                .expect_err(mutation.name);
+        let error = laneflow_artifact_inspect::inspect::inspect(
+            &mutation.bytes,
+            &fields_options(),
+            &default_policy(),
+            &SessionConfig::hardened(),
+        )
+        .expect_err(mutation.name);
+        assert_eq!(
+            error,
+            InspectError::Preflight(expected),
+            "{}",
+            mutation.name
+        );
+    }
 }

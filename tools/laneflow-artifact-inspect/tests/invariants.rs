@@ -170,7 +170,7 @@ fn object_facts_are_invariant_under_any_filter() {
 fn collection_is_filter_aware_beyond_global_prefix() {
     // 评审例：300 条差异 + --rows=149..150。选中行的差异必须可见，
     // 「选定范围未发现差异」不得成为假话。
-    let expected_lines: Vec<u32> = (0..150).collect();
+    let expected_lines: Vec<u32> = (1..=150).collect();
     let mut actual_lines = expected_lines.clone();
     for line in &mut actual_lines {
         *line += 1;
@@ -198,7 +198,7 @@ fn collection_is_filter_aware_beyond_global_prefix() {
     );
     let text = render_diff(&report, &policy);
     assert!(
-        text.contains("SourceLocation[149].startLine：149 → 150"),
+        text.contains("SourceLocation[149].startLine：150 → 151"),
         "筛选应能揭示全局前缀之外的差异：\n{text}"
     );
     assert!(

@@ -15,7 +15,7 @@
 use laneflow_format::{
     FormatError, FormatLimits, RegistryCheckedFieldValue, RegistryCheckedFieldView,
     RegistryCheckedObjectView, RegistryCheckedRowView, RegistryCheckedTableView,
-    checked_policy_member_row, preflight_object_registry, without_digest_probe,
+    checked_policy_member_row,
 };
 use laneflow_static_contract::{
     PortableFieldType, PortableObjectKind, PortableRowSchema, PortableRowShape, Sha256Digest,
@@ -331,7 +331,7 @@ fn checked_view(
             code: u64::from(u32::from_le_bytes([magic[0], magic[1], magic[2], magic[3]])),
         });
     };
-    without_digest_probe(|| preflight_object_registry(bytes, kind, format_limits))
+    crate::check::preflight_object(bytes, kind, format_limits)
 }
 
 fn first_divergence(expected: &[u8], actual: &[u8]) -> Option<ByteDivergence> {

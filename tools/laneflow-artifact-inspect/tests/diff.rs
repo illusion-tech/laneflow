@@ -204,7 +204,7 @@ fn filtered_range_without_diffs_states_full_object_verdict() {
 
 #[test]
 fn diff_entry_budget_truncates_with_explicit_marker() {
-    let expected_lines: Vec<u32> = (0..50).collect();
+    let expected_lines: Vec<u32> = (1..=50).collect();
     let mut actual_lines = expected_lines.clone();
     for line in &mut actual_lines {
         *line += 1;
@@ -232,7 +232,7 @@ fn diff_entry_budget_truncates_with_explicit_marker() {
 
 #[test]
 fn output_byte_budget_truncates_with_explicit_marker() {
-    let expected_lines: Vec<u32> = (0..50).collect();
+    let expected_lines: Vec<u32> = (1..=50).collect();
     let mut actual_lines = expected_lines.clone();
     for line in &mut actual_lines {
         *line += 1;
@@ -257,8 +257,8 @@ fn output_byte_budget_truncates_with_explicit_marker() {
 
 #[test]
 fn lfsd_embedded_member_diff_descends_to_member_fields() {
-    let expected = common::lfsd_with_evidence_change("k", "locator-a", "locator-a");
-    let actual = common::lfsd_with_evidence_change("k", "locator-a", "locator-b");
+    let expected = common::lfsd_with_evidence_change("k", "locator-x", "locator-a");
+    let actual = common::lfsd_with_evidence_change("k", "locator-x", "locator-b");
     let report = diff(&expected, &actual);
     assert!(!report.equal());
     let text = render(&report);
@@ -294,4 +294,34 @@ fn lfcp_tables_report_not_applicable_digests() {
 {text}"
     );
     assert!(report.field_diff_total > 0, "provenance 差异应落在字段层");
+}
+
+#[test]
+fn value_domain_failures_make_comparison_incomplete() {
+    // #1605：任一侧值域非法都无法完成比较；两侧字节相同也不能推出对象相同。
+    for mutation in common::value_domain_mutations() {
+        let valid = minimal_object(mutation.kind);
+        let invalid = mutation.bytes.as_slice();
+        for (label, expected, actual, expected_ok, actual_ok) in [
+            ("仅左侧非法", invalid, valid.as_slice(), false, true),
+            ("仅右侧非法", valid.as_slice(), invalid, true, false),
+            ("两侧相同且非法", invalid, invalid, false, false),
+        ] {
+            let report = diff(expected, actual);
+            let context = format!("{}：{label}", mutation.name);
+            assert_eq!(report.expected.check.is_ok(), expected_ok, "{context}");
+            assert_eq!(report.actual.check.is_ok(), actual_ok, "{context}");
+            assert!(report.incomplete() && !report.equal(), "{context}");
+            assert!(
+                report.fields.is_empty() && report.container.is_empty(),
+                "{context}：预检失败时不做容器与字段比较"
+            );
+            let text = render(&report);
+            assert!(
+                text.contains("无法完成比较") && !text.contains("对象相同"),
+                "{context}：\n{text}"
+            );
+        }
+        assert!(diff(invalid, invalid).bytes_equal, "{}", mutation.name);
+    }
 }
