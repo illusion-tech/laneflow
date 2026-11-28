@@ -413,11 +413,13 @@ impl MotionLimits {
         if !stop_binds && !barrier_binds {
             return 0;
         }
-        let rate_mm_s2 = (inputs.emergency_decel * 1_000.0) as u64;
-        inputs
-            .speed_mm_s
-            .saturating_sub((rate_mm_s2 as f64 * f64::from(delta_s)) as u32)
+        barrier_speed_cap(inputs.speed_mm_s, inputs.emergency_decel, delta_s)
     }
+}
+
+pub(super) fn barrier_speed_cap(speed_mm_s: u32, emergency_decel: f32, delta_s: f32) -> u32 {
+    let rate_mm_s2 = (emergency_decel * 1_000.0) as u64;
+    speed_mm_s.saturating_sub((rate_mm_s2 as f64 * f64::from(delta_s)) as u32)
 }
 
 impl MotionInputs {
@@ -459,12 +461,11 @@ impl MotionInputs {
             return Some(());
         }
         let (travel, speed) = self.raw_proposal(delta_s)?;
-        if fits(speed)? {
+        // 连整拍减到零的梯形都放不下时，继续二分已无解。保护边界已计入
+        // movement_stop，由普通内核处理拍内停稳、紧急制动和位移硬上限。
+        if fits(speed)? || !fits(0.)? {
             self.proposal = Some((travel, speed));
             return Some(());
-        }
-        if !fits(0.)? {
-            return None;
         }
         let mut low = 0;
         let mut high = quantize_mm(false, speed)?;
@@ -4854,34 +4855,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         } else {
             state.carry_um = u16::try_from(um % 1_000).ok()?;
         }
-        let vehicle_profile = state.profile;
-        let state_speed = state.speed_mm_s;
-        // F1：拍初位置到各 hop 门的距离（困境区豁免的判定距离）。
-        let start_cursor = state.route_edge_index as usize;
-        let start_progress = state.progress_mm;
-        let gate_distance = |index: usize| -> Option<u32> {
-            match crate::kernel::tables::distance_to_occurrence_start(
-                &compiled.occurrence_segments,
-                &compiled.occurrence_offsets,
-                &compiled.segment_totals,
-                start_cursor,
-                start_progress,
-                index.checked_add(1)?,
-            )? {
-                BoundedDistance::Finite(mm) => Some(mm),
-                BoundedDistance::BeyondFinite => None,
-            }
-        };
-        apply_travel_mm(&mut state, edges, lengths, travel_mm, |index| {
-            self.hop_gate_permitted_with_dilemma(
-                compiled,
-                index,
-                vehicle_profile,
-                state_speed,
-                gate_distance(index),
-            ) && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
-                && conflict_stop.is_none_or(|barrier| barrier.constraint.hop as usize != index)
-        })?;
+        self.apply_route_travel_mm(
+            &mut state,
+            compiled,
+            travel_mm,
+            0,
+            waiting_stop,
+            conflict_stop,
+        )?;
         let committed_index = usize::try_from(state.route_edge_index).ok()?;
         let committed_edge = *edges.get(committed_index)?;
         let committed_limit = *speed_limits.get(committed_edge.index())?;
@@ -4907,6 +4888,42 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let speed_mm_s = commit_speed?.min(committed_limit);
         state.speed_mm_s = speed_mm_s;
         Some(state)
+    }
+
+    /// 从给定游标续行；横移在本拍已走的距离上界也计入黄灯困境判断。
+    pub(super) fn apply_route_travel_mm(
+        self,
+        state: &mut VehicleState,
+        compiled: &CompiledRoute,
+        travel_mm: u32,
+        prior_mm: u32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<ResourceBarrier>,
+    ) -> Option<()> {
+        let start = *state;
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        apply_travel_mm(state, &compiled.edges, lengths, travel_mm, |index| {
+            let distance = distance_to_occurrence_start(
+                &compiled.occurrence_segments,
+                &compiled.occurrence_offsets,
+                &compiled.segment_totals,
+                start.route_edge_index as usize,
+                start.progress_mm,
+                index + 1,
+            );
+            let distance = match distance {
+                Some(BoundedDistance::Finite(mm)) => prior_mm.checked_add(mm),
+                _ => None,
+            };
+            self.hop_gate_permitted_with_dilemma(
+                compiled,
+                index,
+                start.profile,
+                start.speed_mm_s,
+                distance,
+            ) && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
+                && conflict_stop.is_none_or(|barrier| barrier.constraint.hop as usize != index)
+        })
     }
 
     /// 按同一拍初 binding 计算停车入口距离；外层 `None` 表示绑定不一致的失败关闭。
@@ -5550,9 +5567,8 @@ impl MotionTaskView<'_> {
     }
 }
 
-#[cfg(test)]
 impl crate::kernel::phase::StepWorkspace<'_> {
-    /// 生产 `MotionTaskView::conflict_stop_for`。测试用它对照未裁剪的精确查询。
+    /// 从给定前杠游标读取 P5 使用的同一份 Waiting/Conflict 资源裁决。
     pub(crate) fn motion_conflict_stop_for(
         &self,
         state: &VehicleState,
@@ -5578,7 +5594,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             motion_previews: &self.workspace.motion_previews,
             motion_bases: &self.workspace.motion_bases,
         }
-        .conflict_stop_for(state, delta_s, compiled, profile)
+        .conflict_stop_at(state, delta_s, compiled, profile, None)
     }
 }
 
@@ -7235,6 +7251,36 @@ mod preview {
         ] {
             assert!(speed_drop_window_upper(1.0, 10.0, max_accel, comfort, delta_s).is_none());
         }
+    }
+
+    #[test]
+    fn a_protection_with_less_than_half_a_ticks_travel_uses_the_ordinary_stop() {
+        let mut inputs = MotionInputs {
+            speed_mm_s: 1_000,
+            desired_mm_s: 1_000,
+            current_limit_mm_s: 1_000,
+            speed_drop_first: 0,
+            min_gap_mm: 2_000,
+            time_headway: 1.,
+            max_accel: 1.,
+            comfort_decel: 2.,
+            emergency_decel: 4.,
+            leader_gap: None,
+            leader_speed_mm_s: 0,
+            carry_um: 0,
+            route_end: BoundedDistance::Finite(100_000),
+            movement_stop: Some(BoundedDistance::Finite(40)),
+            parking: None,
+            edge_length_mm: 100_000,
+            permitted_for_hard_room: true,
+            envelope_m: 1.,
+            proposal: None,
+        };
+        // 100 ms 内全拍梯形减到零也需要 50 mm；当前位置距扣除最小间距的硬边界仅 40 mm。
+        inputs.preserve_handoff_clearance(2_040, 100, 0.1).unwrap();
+        let limits = inputs.limits(0, None, None, false);
+        assert_eq!(limits.hard_room_mm, 40);
+        assert_eq!(limits.exhausted_speed_cap(&inputs, 0.1), 600);
     }
 
     #[test]

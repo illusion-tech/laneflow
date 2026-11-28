@@ -313,6 +313,9 @@ impl crate::kernel::state::WorldState {
     /// 活动世界丢弃，不提交任何东西。
     pub(crate) fn yield_overlap_refresh(&mut self) -> bool {
         use crate::kernel::occupancy::CommandOccupancy;
+        if !self.committed.handoffs.is_empty() {
+            return self.yield_occupancy_rebuild();
+        }
         if self.workspace.command_occupancy != CommandOccupancy::Yield
             || self.derived.spawn_overlap.is_current()
         {
@@ -322,6 +325,38 @@ impl crate::kernel::state::WorldState {
         #[cfg(test)]
         OVERLAP_YIELDS.with(|count| count.set(count.get() + 1));
         true
+    }
+
+    /// 横移车的车身由已提交的两侧几何确定，不能从前杠沿普通路线退回源边末端。
+    pub(super) fn placement_overlap_blocker(
+        &mut self,
+        route: RouteHandle,
+        cursor: usize,
+        progress: u32,
+        length: u32,
+    ) -> Result<Option<VehicleHandle>, crate::StepError> {
+        if self.committed.handoffs.is_empty() {
+            return Ok(self.overlap_blocker(route, cursor, progress, length));
+        }
+        self.ensure_current_occupancy()?;
+        let edges = self
+            .route_edges(route)
+            .ok_or(crate::StepError::OccupancyIntervalIncomplete)?;
+        let mut blocker = None;
+        for_each_admission_interval(
+            self.binding.revision.traffic().lane_lengths_millimetres(),
+            edges,
+            cursor,
+            progress,
+            length,
+            |edge, lo, hi| {
+                if blocker.is_none() {
+                    blocker = self.derived.occupancy.admission_blocker(edge, lo, hi);
+                }
+            },
+        )
+        .ok_or(crate::StepError::OccupancyIntervalIncomplete)?;
+        Ok(blocker)
     }
 
     /// 批量状态变动后首次查询重建；单次命令只登记/移除自己的实际占用边。

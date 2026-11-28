@@ -276,7 +276,6 @@ impl BucketStore {
         })
     }
 
-    #[cfg(test)]
     fn iter(&self) -> impl Iterator<Item = OccupancyBucket<'_>> + '_ {
         (0..self.spans.len()).filter_map(|index| self.get(index))
     }
@@ -1024,8 +1023,48 @@ impl OccupancyIndex {
             .flat_map(|bucket| bucket.records.iter().map(|record| record.vehicle))
     }
 
+    /// 核对刚重建的恢复占用。桶按区间终点升序，后缀保留排除本车后的最小起点。
+    pub(crate) fn overlapping_vehicle(&self) -> Option<VehicleHandle> {
+        use crate::kernel::tables::admission_intervals_overlap;
+        for bucket in self.buckets.iter() {
+            for (index, adjacent) in bucket.records.windows(2).enumerate() {
+                let (here, next) = (&adjacent[0], &adjacent[1]);
+                // 同一毫米点的退化区间在桶内相邻。与非空区间仅端点相接仍合法。
+                if here.vehicle != next.vehicle
+                    && admission_intervals_overlap(here.lo_mm, here.hi_mm, next.lo_mm, next.hi_mm)
+                {
+                    return Some(next.vehicle);
+                }
+                if let Some(other) = self.min_lo_from(&bucket, index + 1, here.vehicle)
+                    && admission_intervals_overlap(here.lo_mm, here.hi_mm, other.lo_mm, other.hi_mm)
+                {
+                    return Some(other.vehicle);
+                }
+            }
+        }
+        None
+    }
+
     fn bucket(&self, edge: LaneEdgeOrdinal) -> Option<OccupancyBucket<'_>> {
         self.buckets.get(edge.index())
+    }
+
+    /// 与普通重叠索引使用相同的区间及 live 序破平，车身直接取本边的已提交片段。
+    pub(super) fn admission_blocker(
+        &self,
+        edge: LaneEdgeOrdinal,
+        lo: u32,
+        hi: u32,
+    ) -> Option<VehicleHandle> {
+        let records = self.bucket(edge)?.records;
+        let first = records.partition_point(|r| r.hi_mm < lo);
+        records[first..]
+            .iter()
+            .filter(|r| {
+                crate::kernel::tables::admission_intervals_overlap(lo, hi, r.lo_mm, r.hi_mm)
+            })
+            .max_by_key(|r| (r.hi_mm, r.lo_mm, std::cmp::Reverse(r.update_sequence)))
+            .map(|r| r.vehicle)
     }
 
     /// 与毫米闭区间相交的一个已提交车体片段，包含零进度入口。以片段起点、
@@ -2374,7 +2413,7 @@ impl crate::kernel::state::WorldState {
         {
             return;
         }
-        if !self.derived.spawn_overlap.is_current() {
+        if self.committed.handoffs.is_empty() && !self.derived.spawn_overlap.is_current() {
             let edge_count = self
                 .binding
                 .revision
@@ -2925,6 +2964,47 @@ pub(crate) mod tests {
             ([20, 20], Some(records[3].vehicle)),
         ] {
             assert_eq!(index.touching_vehicle(edge, range), expected);
+        }
+    }
+
+    #[test]
+    fn restored_bucket_overlap_matches_pairwise_admission_for_points_and_repeated_owners() {
+        use crate::kernel::tables::admission_intervals_overlap;
+        let mut choices = Vec::new();
+        for vehicle in 0..2 {
+            for lo_mm in 0..=2 {
+                for hi_mm in lo_mm..=2 {
+                    choices.push(OccupancyRecord {
+                        vehicle: VehicleHandle::new(vehicle, 0),
+                        update_sequence: vehicle,
+                        lo_mm,
+                        hi_mm,
+                        ..OccupancyRecord::PLACEHOLDER
+                    });
+                }
+            }
+        }
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(1, 0);
+        for &a in &choices {
+            for &b in &choices {
+                for &c in &choices {
+                    let overlap = [(a, b), (a, c), (b, c)].iter().any(|(left, right)| {
+                        left.vehicle != right.vehicle
+                            && admission_intervals_overlap(
+                                left.lo_mm,
+                                left.hi_mm,
+                                right.lo_mm,
+                                right.hi_mm,
+                            )
+                    });
+                    index.rebuild_from_pending(&mut scratch, &[a, b, c], 1);
+                    assert_eq!(
+                        index.overlapping_vehicle().is_some(),
+                        overlap,
+                        "{a:?} {b:?} {c:?}"
+                    );
+                }
+            }
         }
     }
 
@@ -4043,7 +4123,7 @@ pub(crate) mod tests {
                 crate::VehicleStatus::Active,
                 None,
                 None,
-                false,
+                Default::default(),
             )
             .expect("follower");
         world

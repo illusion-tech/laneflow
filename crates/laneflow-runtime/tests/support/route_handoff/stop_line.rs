@@ -1,7 +1,7 @@
 use super::*;
 use laneflow_compiler::{GateInterpretation, GateProhibition, RegulationIdentity};
 use laneflow_runtime::{TrafficWorld, deterministic_state_digest};
-use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal};
+use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal, SignalAspect};
 use laneflow_static_network::{SharedNetworkRevision, vehicle::HandoffLaneSide};
 
 #[derive(Clone, Copy)]
@@ -12,7 +12,8 @@ pub(super) enum SourceStop {
     Both,
     WithTurn,
     ParallelFork,
-    TargetSignal,
+    TargetSignal(&'static [(&'static str, SignalAspect, u64)]),
+    TargetConflict,
 }
 
 impl SourceStop {
@@ -22,7 +23,7 @@ impl SourceStop {
             Self::OnOccurrence | Self::Both => ("s2", "s3"),
             Self::OnContinuation => ("s3", "s4"),
             Self::Upstream | Self::WithTurn | Self::ParallelFork => ("s1", "s2"),
-            Self::TargetSignal => ("t1", "t2"),
+            Self::TargetSignal(_) | Self::TargetConflict => ("t1", "t2"),
         };
         let mut rules = Vec::new();
         if matches!(self, Self::WithTurn | Self::ParallelFork) {
@@ -40,19 +41,27 @@ impl SourceStop {
             if matches!(self, Self::ParallelFork) {
                 return;
             }
-            add_stop(builder, entry, &[exit, "turn-exit"], &mut rules, false);
+            add_stop(builder, entry, &[exit, "turn-exit"], &mut rules, &[]);
         } else {
             add_stop(
                 builder,
                 entry,
                 &[exit],
                 &mut rules,
-                matches!(self, Self::TargetSignal),
+                match self {
+                    Self::TargetSignal(phases) => phases,
+                    _ => &[],
+                },
             );
         }
         if let Self::Both = self {
-            add_stop(builder, "t0", &["t1"], &mut rules, false);
+            add_stop(builder, "t0", &["t1"], &mut rules, &[]);
         }
+        let streams = if let Self::TargetConflict = self {
+            add_target_passages(builder)
+        } else {
+            Vec::new()
+        };
         builder
             .add_declaration(D::RightOfWayPolicySet(
                 RightOfWayPolicySetInput::try_new(
@@ -63,7 +72,7 @@ impl SourceStop {
                         .unwrap(),
                     vec![],
                     vec![],
-                    vec![],
+                    streams,
                     rules,
                 )
                 .unwrap(),
@@ -72,48 +81,106 @@ impl SourceStop {
     }
 }
 
+fn add_target_passages(builder: &mut RoadEditingSourceModuleBuilder) -> Vec<PolicyStreamRuleInput> {
+    use RoadEditingDeclaration as D;
+    let junction = JunctionReference::local("t1").unwrap();
+    let zone = ConflictZoneReference::owner_scoped(vec!["t1".into()], "zone").unwrap();
+    let path = ManeuverPathReference::owner_scoped(vec!["t1".into(), "t2".into()], "path").unwrap();
+    let gate =
+        ManeuverGateReference::owner_scoped(vec!["t1".into(), "t2".into(), "path".into()], "entry")
+            .unwrap();
+    builder
+        .add_declaration(D::ConflictZone(
+            ConflictZoneInput::try_new("zone", junction.clone()).unwrap(),
+        ))
+        .unwrap();
+    let mut rules = Vec::new();
+    for (key, exit_m) in [("through-a", 0.3), ("through-b", 0.4)] {
+        rules.push(
+            PolicyStreamRuleInput::try_new(
+                key,
+                ParticipantStreamReference::owner_scoped(vec!["t1".into()], key).unwrap(),
+                None,
+                0,
+                vec![],
+                None,
+                vec![],
+            )
+            .unwrap(),
+        );
+        builder
+            .add_declaration(D::ParticipantStream(
+                ParticipantStreamInput::try_new(
+                    key,
+                    junction.clone(),
+                    path.clone(),
+                    vec![ConflictPassageInput::new(
+                        zone.clone(),
+                        PathAnchorInput::gate(gate.clone()),
+                        PathAnchorInput::interior(1, exit_m).unwrap(),
+                    )],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+    builder
+        .add_conflict_zone_region(
+            ConflictZoneRegionInput::try_new(
+                zone,
+                CanonicalFrameReference::local("frame-main").unwrap(),
+                -1.,
+                1.,
+                [(-4., 33.2), (-3., 33.2), (-3., 33.6), (-4., 33.6)]
+                    .map(|(x, z)| RoadEditingPoint2::try_new(x, z).unwrap())
+                    .into(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    rules
+}
+
 fn add_stop(
     builder: &mut RoadEditingSourceModuleBuilder,
     entry: &str,
     exits: &[&str],
     rules: &mut Vec<PolicyGateRuleInput>,
-    signal: bool,
+    phases: &[(&str, SignalAspect, u64)],
 ) {
     use RoadEditingDeclaration as D;
     let edge = |key: &str| LaneEdgeReference::local(key).unwrap();
     let group = SignalGroupReference::local("through").unwrap();
+    let signal = !phases.is_empty();
     if signal {
         builder
             .add_declaration(D::SignalGroup(
                 SignalGroupInput::try_new("through").unwrap(),
             ))
             .unwrap();
-        let names = ["red", "green"];
         builder
             .add_declaration(D::SignalController(
                 SignalControllerInput::try_new(
                     "control",
                     0,
                     vec![group.clone()],
-                    names
-                        .map(|name| {
+                    phases
+                        .iter()
+                        .map(|&(name, _, _)| {
                             SignalPhaseReference::owner_scoped(vec!["control".into()], name)
                                 .unwrap()
                         })
-                        .into(),
+                        .collect(),
                 )
                 .unwrap(),
             ))
             .unwrap();
-        for (name, aspect) in names.into_iter().zip([
-            laneflow_static_contract::SignalAspect::Red,
-            laneflow_static_contract::SignalAspect::Green,
-        ]) {
+        for &(name, aspect, duration_ms) in phases {
             builder
                 .add_declaration(D::SignalPhase(
                     SignalPhaseInput::try_new(
                         name,
-                        10_000,
+                        duration_ms,
                         vec![RoadEditingSignalPhaseState::try_new(group.clone(), aspect).unwrap()],
                         SignalControllerReference::local("control").unwrap(),
                     )

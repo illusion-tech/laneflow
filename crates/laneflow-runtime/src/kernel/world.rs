@@ -251,6 +251,13 @@ struct UnparkedVehicleAuthority {
     waiting_membership: Option<crate::WaitingMembership>,
 }
 
+/// 换道记录依赖完整的车辆映射。私有恢复世界在得到双侧占用后统一核验车身重叠。
+#[derive(Clone, Copy, Default)]
+pub(crate) struct RestoreAdmission {
+    pub(crate) conflict_authority: bool,
+    pub(crate) defer_overlap: bool,
+}
+
 /// 预检并行段数上限；栈上布尔数组，不分配。
 const PREFLIGHT_MAX_PARTS: usize = 256;
 
@@ -1274,7 +1281,7 @@ impl crate::kernel::state::WorldState {
             0,
             VehicleStatus::Active,
             None,
-            false,
+            RestoreAdmission::default(),
             admit_motion,
         )?;
         let update_sequence = u32::try_from(self.committed.live_order.len())
@@ -1345,7 +1352,7 @@ impl crate::kernel::state::WorldState {
         status: VehicleStatus,
         maneuver_traversal: Option<crate::ManeuverTraversalState>,
         waiting_membership: Option<crate::WaitingMembership>,
-        restored_conflict_authority: bool,
+        admission: RestoreAdmission,
     ) -> Result<VehicleHandle, SpawnError> {
         debug_assert!(matches!(
             status,
@@ -1356,7 +1363,7 @@ impl crate::kernel::state::WorldState {
             carry_um,
             status,
             Some(maneuver_traversal),
-            restored_conflict_authority,
+            admission,
             false,
         )?;
         let authority = UnparkedVehicleAuthority {
@@ -1385,7 +1392,7 @@ impl crate::kernel::state::WorldState {
         carry_um: u16,
         status: VehicleStatus,
         restored_traversal: Option<Option<crate::ManeuverTraversalState>>,
-        restored_conflict_authority: bool,
+        admission: RestoreAdmission,
         check_departure: bool,
     ) -> Result<
         (
@@ -1470,13 +1477,17 @@ impl crate::kernel::state::WorldState {
             }
         }
         if status == VehicleStatus::Active {
-            if self.yield_overlap_refresh() {
-                // 让出的结果不会返回给调用方。
-                return Err(SpawnError::Overlap);
-            }
-            if self
-                .overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
-                .is_some()
+            if !admission.defer_overlap
+                && (self.yield_overlap_refresh()
+                    || self
+                        .placement_overlap_blocker(
+                            input.route(),
+                            cursor,
+                            input.progress_mm(),
+                            vehicle_length,
+                        )
+                        .map_err(|_| SpawnError::OccupancyAllocFailed)?
+                        .is_some())
             {
                 return Err(SpawnError::Overlap);
             }
@@ -1491,7 +1502,8 @@ impl crate::kernel::state::WorldState {
                 Err(ConflictCapabilityError::InvalidCursor) => {
                     return Err(SpawnError::InvalidProgress);
                 }
-                Err(ConflictCapabilityError::AuthorityRequired) if restored_conflict_authority => {}
+                Err(ConflictCapabilityError::AuthorityRequired) if admission.conflict_authority => {
+                }
                 Err(ConflictCapabilityError::AuthorityRequired) => {
                     return Err(SpawnError::ConflictAuthorityRequired);
                 }
@@ -1673,8 +1685,9 @@ impl crate::kernel::state::WorldState {
             // 让出的结果不会返回给调用方。
             return Err(ReplaceError::OccupancyAllocFailed);
         }
-        if let Some(blocker) =
-            self.overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
+        if let Some(blocker) = self
+            .placement_overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
+            .map_err(|_| ReplaceError::OccupancyAllocFailed)?
         {
             let (blocker_ahead, bumper_gap) = self.overlap_relation(
                 input.route(),

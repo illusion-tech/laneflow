@@ -1,4 +1,6 @@
 //! 实际编制、登记和步进的动态换道。两条外侧实车道可分别向公共中道横移。
+#[path = "road_safety/restore.rs"]
+mod restore_overlap;
 #[path = "road_safety/scene.rs"]
 mod scene;
 use laneflow_runtime::{RouteHandoffEntrantReason, deterministic_state_digest};

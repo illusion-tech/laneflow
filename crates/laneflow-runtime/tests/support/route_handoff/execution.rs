@@ -5,7 +5,7 @@ use laneflow_runtime::{
     SnapshotRestoreLimits, TickInput, TrafficWorld, VehicleSpawnInput, deterministic_state_digest,
     encode_lfrs, restore_lfrs,
 };
-use laneflow_static_contract::MAX_SPEED_MM_S;
+use laneflow_static_contract::{MAX_SPEED_MM_S, SignalAspect};
 use std::num::NonZeroU32;
 
 pub(super) fn drive_fixture(
@@ -60,7 +60,7 @@ fn drive_on(
     };
     let route = world
         .register_route(
-            RouteRegisterInput::new(vec![src[0], src[1], src[2], dst[1], dst[2]])
+            RouteRegisterInput::new([&src[..=2], &dst[1..]].concat())
                 .with_handoffs(vec![occurrence]),
         )
         .unwrap();
@@ -92,7 +92,10 @@ fn a_red_target_approach_brakes_the_active_handoff_and_green_releases_it() {
         0.,
         None,
         RoadEditingLaneDirection::Forward,
-        Some(stop_line::SourceStop::TargetSignal),
+        Some(stop_line::SourceStop::TargetSignal(&[
+            ("red", SignalAspect::Red, 10_000),
+            ("green", SignalAspect::Green, 10_000),
+        ])),
     );
     let (mut world, request, _) = drive_on(3_000, 1_000, source);
     let owner = request.vehicle;
@@ -119,6 +122,55 @@ fn a_red_target_approach_brakes_the_active_handoff_and_green_releases_it() {
         }
     }
     assert!(stopped && proceeded);
+}
+
+#[test]
+fn a_handoff_that_entered_on_green_clears_the_target_line_after_the_light_changes() {
+    for direction in [
+        RoadEditingLaneDirection::Forward,
+        RoadEditingLaneDirection::Backward,
+    ] {
+        let source = road_module(
+            0.,
+            None,
+            direction,
+            Some(stop_line::SourceStop::TargetSignal(&[
+                ("green", SignalAspect::Green, 15_000),
+                ("yellow", SignalAspect::Yellow, 3_000),
+                ("red", SignalAspect::Red, 25_000),
+            ])),
+        );
+        let (mut world, mut request, _) = drive_on(1_000, 1_000, source);
+        request.speed_m_s = 1.;
+        if direction == RoadEditingLaneDirection::Backward {
+            request.rear_stations_mm.reverse();
+        }
+        let owner = request.vehicle;
+        world
+            .step_with_route_handoffs(TickInput::new(1000), &[request])
+            .unwrap();
+        for tick in 2..=32 {
+            world
+                .step(TickInput::new(1000))
+                .unwrap_or_else(|e| panic!("{direction:?} tick {tick}: {e}"));
+            if tick == 15 {
+                let geometry = world.committed_handoff_geometry(owner).unwrap().unwrap();
+                let foot = geometry.footprint;
+                let line = if direction == RoadEditingLaneDirection::Forward {
+                    28_000
+                } else {
+                    22_000
+                };
+                let target = foot.sides[1].as_ref().unwrap();
+                assert!(foot.sides[0].is_some());
+                assert!(target.enclosure.station_relation(line).is_eq());
+                assert!(target.has_passed_station(line));
+                assert_eq!(world.vehicle(owner).unwrap().route_edge_index(), 4);
+            }
+        }
+        assert!(world.vehicle_route_handoffs(owner).next().is_none());
+        assert_eq!(world.vehicle(owner).unwrap().route_edge_index(), 4);
+    }
 }
 
 #[test]
@@ -237,7 +289,14 @@ fn a_front_within_one_millimetre_keeps_moving_across_tick_79_and_restores_identi
 
 #[test]
 fn reserved_dual_side_front_keeps_its_source_cursor_until_the_target_is_proven() {
-    let source = road_module_with_width(0., None, RoadEditingLaneDirection::Forward, None, 3.5004);
+    let source = road_module_with_splits(
+        0.,
+        None,
+        RoadEditingLaneDirection::Forward,
+        None,
+        3.5004,
+        &[10., 28.],
+    );
     let (mut world, request, config) = drive_on(2_000, 100, source);
     let tick = TickInput::new(100);
     world.step_with_route_handoffs(tick, &[request]).unwrap();
@@ -431,4 +490,157 @@ fn a_proven_last_millimetre_preserves_the_following_ticks_target_travel() {
     let after = world.vehicle(request.vehicle).unwrap();
     assert_eq!(before.route_edge_index(), after.route_edge_index());
     assert!((998..=1002).contains(&(after.progress_mm() - before.progress_mm())));
+}
+
+#[test]
+fn terminal_travel_uses_the_same_position_across_one_or_two_target_cuts() {
+    let finish = |cuts: &[f64]| {
+        let source =
+            road_module_with_splits(0., None, RoadEditingLaneDirection::Forward, None, 3.5, cuts);
+        let (mut world, mut request, _) = drive_on(1_000, 1_000, source);
+        request.speed_m_s = 1.;
+        request.rear_stations_mm[1] = 39_709;
+        world
+            .step_with_route_handoffs(TickInput::new(1000), &[request])
+            .unwrap();
+        for tick in 2..=30 {
+            world
+                .step(TickInput::new(1000))
+                .unwrap_or_else(|error| panic!("tick {tick}: {error}"));
+        }
+        assert!(
+            world
+                .vehicle_route_handoffs(request.vehicle)
+                .next()
+                .unwrap()
+                .front_handed_off
+        );
+        world.step(TickInput::new(1000)).unwrap();
+        assert!(
+            world
+                .vehicle_route_handoffs(request.vehicle)
+                .next()
+                .is_none()
+        );
+        world.vehicle(request.vehicle).unwrap()
+    };
+    let reference = finish(&[10., 28.]);
+    let station_mm = 28_000 + reference.progress_mm();
+    assert!(
+        (43_700..45_000).contains(&station_mm),
+        "reference {reference:?} at {station_mm}"
+    );
+    for cuts_mm in [
+        vec![10_000, 43_200],
+        vec![10_000, station_mm],
+        vec![10_000, 43_200, 43_700],
+    ] {
+        let cuts: Vec<_> = cuts_mm.iter().map(|mm| f64::from(*mm) / 1_000.).collect();
+        let moved = finish(&cuts);
+        assert_eq!(moved.route_edge_index(), 2 + cuts.len() as u32);
+        assert_eq!(moved.progress_mm(), station_mm - cuts_mm.last().unwrap());
+        assert_eq!(moved.speed_mm_s(), reference.speed_mm_s());
+    }
+}
+
+#[test]
+fn terminal_travel_respects_a_red_target_successor_and_resumes_on_green() {
+    let source = road_module_with_splits(
+        0.,
+        None,
+        RoadEditingLaneDirection::Forward,
+        Some(stop_line::SourceStop::TargetSignal(&[
+            ("green", SignalAspect::Green, 30_000),
+            ("red", SignalAspect::Red, 4_000),
+        ])),
+        3.5,
+        &[10., 43.2],
+    );
+    let (mut world, mut request, _) = drive_on(1_000, 1_000, source);
+    request.speed_m_s = 1.;
+    request.rear_stations_mm[1] = 39_709;
+    world
+        .step_with_route_handoffs(TickInput::new(1000), &[request])
+        .unwrap();
+    for tick in 2..=34 {
+        world
+            .step(TickInput::new(1000))
+            .unwrap_or_else(|e| panic!("tick {tick}: {e}"));
+        let v = world.vehicle(request.vehicle).unwrap();
+        assert!(v.route_edge_index() < 4, "tick {tick}: {v:?}");
+    }
+    assert!(
+        world
+            .vehicle_route_handoffs(request.vehicle)
+            .next()
+            .is_none()
+    );
+    for _ in 0..4 {
+        world.step(TickInput::new(1000)).unwrap();
+    }
+    assert_eq!(
+        world.vehicle(request.vehicle).unwrap().route_edge_index(),
+        4
+    );
+}
+
+#[test]
+fn terminal_travel_preserves_the_target_gate_and_conflict_events() {
+    use laneflow_runtime::TrafficTransitionKind as Kind;
+    let source = road_module_with_splits(
+        0.,
+        None,
+        RoadEditingLaneDirection::Forward,
+        Some(stop_line::SourceStop::TargetConflict),
+        3.5,
+        &[10., 43.2],
+    );
+    let (mut world, mut request, _) = drive_on(1_000, 1_000, source);
+    request.speed_m_s = 1.;
+    request.rear_stations_mm[1] = 39_709;
+    world
+        .step_with_route_handoffs(TickInput::new(1000), &[request])
+        .unwrap();
+    for tick in 2..=30 {
+        world
+            .step(TickInput::new(1000))
+            .unwrap_or_else(|error| panic!("tick {tick}: {error}"));
+    }
+    assert!(
+        world
+            .vehicle_route_handoffs(request.vehicle)
+            .next()
+            .is_some()
+    );
+    let already_reserved = world.conflict_reservation(request.vehicle).is_some();
+    world.step(TickInput::new(1000)).unwrap();
+    assert!(
+        world
+            .vehicle_route_handoffs(request.vehicle)
+            .next()
+            .is_none()
+    );
+    let events: Vec<_> = world
+        .latest_transition_events()
+        .iter()
+        .map(|e| e.kind())
+        .collect();
+    assert!(
+        events.iter().any(|e| matches!(e, Kind::GateCrossed { .. })),
+        "{events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Kind::ConflictEntered { .. })),
+        "{events:?}"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .any(|e| matches!(e, Kind::ReservationAcquired { .. })),
+        !already_reserved,
+        "{events:?}"
+    );
+    assert!(world.conflict_reservation(request.vehicle).is_some());
 }

@@ -3,6 +3,7 @@
 mod approaches;
 mod binding;
 pub(in crate::kernel) mod braking;
+mod continuation;
 mod entrants;
 pub(crate) mod execution;
 mod observation;

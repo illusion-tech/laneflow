@@ -11,9 +11,11 @@ pub(super) const CUT: u32 = 40_000;
 const ROAD: u64 = 350_000;
 pub(super) const TICK: TickInput = TickInput::new(100);
 
-fn network() -> Arc<SharedNetworkRevision> {
-    static REVISION: OnceLock<Arc<SharedNetworkRevision>> = OnceLock::new();
-    Arc::clone(REVISION.get_or_init(|| {
+fn network(
+    cuts_m: [u32; 3],
+    cache: &OnceLock<Arc<SharedNetworkRevision>>,
+) -> Arc<SharedNetworkRevision> {
+    Arc::clone(cache.get_or_init(|| {
         use RoadEditingDeclaration as D;
         let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = RoadEditingSourceModuleBuilder::new(
@@ -91,7 +93,7 @@ fn network() -> Arc<SharedNetworkRevision> {
             .unwrap()
             .with_boundary_extents(boundaries),
         ));
-        for (name, limit) in names.into_iter().zip([10., 13.9, 10.]) {
+        for ((name, limit), cut) in names.into_iter().zip([10., 13.9, 10.]).zip(cuts_m) {
             let first = format!("{name}-up");
             let last = LaneEdgeReference::local(name).unwrap();
             add(D::LaneEdge(
@@ -111,11 +113,29 @@ fn network() -> Arc<SharedNetworkRevision> {
                     section.clone(),
                 )
                 .unwrap()
-                .with_edge_chain(vec![first, last], vec![40.])
+                .with_edge_chain(vec![first, last], vec![f64::from(cut)])
                 .unwrap()
                 .with_wheel_support(Some(true)),
             ));
         }
+        add(D::ParkingFacility(
+            ParkingFacilityInput::try_new("parking").unwrap(),
+        ));
+        let anchor = ParkingLaneAnchor::try_new(
+            LaneEdgeReference::local("left").unwrap(),
+            348.5 - f64::from(cuts_m[0]),
+        )
+        .unwrap();
+        add(D::ParkingSpace(
+            ParkingSpaceInput::try_new(
+                "space",
+                anchor.clone(),
+                anchor,
+                ParkingSpaceGeometry::try_new(1.5, 0., 5., 2.5).unwrap(),
+            )
+            .unwrap()
+            .with_parking_facility(ParkingFacilityReference::local("parking").unwrap()),
+        ));
         add(D::ParticipantClass(
             ParticipantClassInput::try_new("motor").unwrap(),
         ));
@@ -163,7 +183,16 @@ pub(super) struct Change {
 
 impl Scene {
     pub(super) fn new(workers: u32) -> Self {
-        let revision = network();
+        static REVISION: OnceLock<Arc<SharedNetworkRevision>> = OnceLock::new();
+        Self::with_cuts(workers, [40; 3], &REVISION)
+    }
+
+    pub(super) fn with_cuts(
+        workers: u32,
+        cuts_m: [u32; 3],
+        cache: &OnceLock<Arc<SharedNetworkRevision>>,
+    ) -> Self {
+        let revision = network(cuts_m, cache);
         let rel = revision.traffic().relations();
         let section = rel.section_lanes(RoadSectionOrdinal::from_raw(0)).unwrap();
         let lanes = std::array::from_fn(|i| rel.authoring_edge_chain(section[i]).unwrap().to_vec());
@@ -197,8 +226,9 @@ impl Scene {
             .world
             .register_route(RouteRegisterInput::new(self.lanes[lane].clone()))
             .unwrap();
-        let (index, progress) = if front >= CUT {
-            (1, front - CUT)
+        let cut = self.cut(lane);
+        let (index, progress) = if front >= cut {
+            (1, front - cut)
         } else {
             (0, front)
         };
@@ -231,7 +261,7 @@ impl Scene {
             source_index: 1,
             owner: BoundaryOwner::Section(RoadSectionOrdinal::from_raw(0)),
             left_index: u32::from(lane == 2),
-            stations_mm: [u64::from(CUT) + 1, ROAD - 1],
+            stations_mm: [u64::from(self.cut(lane).max(self.cut(1))) + 1, ROAD - 1],
         };
         let binding = self.world.bind_route_handoff(&input, occurrence).unwrap();
         let route = self
@@ -244,7 +274,7 @@ impl Scene {
                 profile,
                 route,
                 1,
-                front - CUT,
+                front - self.cut(lane),
                 speed,
             ))
             .unwrap();
@@ -265,12 +295,18 @@ impl Scene {
 
     pub(super) fn front(&self, vehicle: VehicleHandle) -> u32 {
         let state = self.world.vehicle(vehicle).unwrap();
-        state.rounded_front_progress_mm()
-            + if state.route_edge_index() == 0 {
-                0
-            } else {
-                CUT
-            }
+        let edge =
+            self.world.route_edges(state.route()).unwrap()[state.route_edge_index() as usize];
+        let cut = self
+            .lanes
+            .iter()
+            .position(|lane| lane[1] == edge)
+            .map_or(0, |lane| self.cut(lane));
+        state.rounded_front_progress_mm() + cut
+    }
+
+    fn cut(&self, lane: usize) -> u32 {
+        self.revision.traffic().lane_lengths_millimetres()[self.lanes[lane][0].index()]
     }
 
     pub(super) fn request(&self, change: &Change) -> RouteHandoffRequest {

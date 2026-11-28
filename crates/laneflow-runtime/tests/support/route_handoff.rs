@@ -70,15 +70,23 @@ fn road_module(
     direction: RoadEditingLaneDirection,
     source_stop: Option<stop_line::SourceStop>,
 ) -> RoadEditingSourceModule {
-    road_module_with_width(shift_x, additional, direction, source_stop, 3.5)
+    road_module_with_splits(
+        shift_x,
+        additional,
+        direction,
+        source_stop,
+        3.5,
+        &[10., 28.],
+    )
 }
 
-fn road_module_with_width(
+fn road_module_with_splits(
     shift_x: f64,
     additional: Option<BoundaryExtentInput>,
     direction: RoadEditingLaneDirection,
     source_stop: Option<stop_line::SourceStop>,
     lane_width_m: f64,
+    target_cuts: &[f64],
 ) -> RoadEditingSourceModule {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -202,7 +210,8 @@ fn road_module_with_width(
             stop_line::SourceStop::Upstream
             | stop_line::SourceStop::WithTurn
             | stop_line::SourceStop::ParallelFork
-            | stop_line::SourceStop::TargetSignal,
+            | stop_line::SourceStop::TargetSignal(_)
+            | stop_line::SourceStop::TargetConflict,
         ) => (&["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.]),
         Some(stop_line::SourceStop::OnOccurrence | stop_line::SourceStop::Both) => {
             (&["s0", "s1", "s2", "s3"][..], vec![10., 14., 35.])
@@ -212,9 +221,10 @@ fn road_module_with_width(
             vec![10., 14., 32., 35.],
         ),
     };
+    let target_keys = &["t0", "t1", "t2", "t3"][..=target_cuts.len()];
     for (lane, keys, mut cuts) in [
         ("source", source_keys, source_cuts),
-        ("target", &["t0", "t1", "t2"][..], vec![10., 28.]),
+        ("target", target_keys, target_cuts.to_vec()),
     ] {
         if direction == RoadEditingLaneDirection::Backward {
             for station in &mut cuts {
@@ -229,7 +239,7 @@ fn road_module_with_width(
                     keys.get(i + 1)
                         .copied()
                         .or_else(|| {
-                            (*k == "t2" && direction == RoadEditingLaneDirection::Forward)
+                            (lane == "target" && direction == RoadEditingLaneDirection::Forward)
                                 .then_some("return")
                         })
                         .map(edge)

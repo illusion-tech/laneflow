@@ -740,6 +740,8 @@ pub(super) fn restore_lfrs(
     world.refresh_signals();
 
     let vehicle_rows = root.vehicles();
+    let defer_overlap = target_config.handoff_driving().is_some()
+        && vehicle_rows.iter().any(|row| !row.handoffs().is_empty());
     let mut vehicle_map = BTreeMap::new();
     // 非 Active 先恢复，Active 最后恢复；每辆车都以最终状态一次提交，
     // 因此 Completed 不会被临时当成 Active，Active 的 carry 也参与提交前 3A 校验。
@@ -749,7 +751,14 @@ pub(super) fn restore_lfrs(
             if (status == VehicleStatus::Active) != active_pass {
                 continue;
             }
-            restore_vehicle(&mut world, vehicle, status, &route_map, &mut vehicle_map)?;
+            restore_vehicle(
+                &mut world,
+                vehicle,
+                status,
+                &route_map,
+                &mut vehicle_map,
+                defer_overlap,
+            )?;
         }
     }
 
@@ -786,6 +795,21 @@ pub(super) fn restore_lfrs(
     world
         .rebuild_occupancy_index()
         .map_err(SnapshotRestoreError::Occupancy)?;
+
+    if defer_overlap {
+        // 普通车和横移车此时分别使用纵向区间和已证的双侧区间，车辆的读入顺序不参与判断。
+        if let Some(owner) = world.derived.occupancy.overlapping_vehicle() {
+            let snapshot_vehicle_id = vehicle_map
+                .iter()
+                .find_map(|(&id, &h)| (h == owner).then_some(id))
+                .ok_or(SnapshotRestoreError::InvalidHandoffState)?;
+            return Err(SnapshotRestoreError::Vehicle {
+                snapshot_vehicle_id,
+                error: crate::SpawnError::Overlap,
+            });
+        }
+        world.derived.spawn_overlap.mark_stale();
+    }
 
     if world.conflict_platoons_valid() != Ok(true) {
         return Err(SnapshotRestoreError::InvalidConflictPlatoon);
@@ -2368,6 +2392,7 @@ fn restore_vehicle(
     status: VehicleStatus,
     route_map: &BTreeMap<u64, RouteHandle>,
     vehicle_map: &mut BTreeMap<u64, VehicleHandle>,
+    defer_overlap: bool,
 ) -> Result<(), SnapshotRestoreError> {
     let snapshot_vehicle_id = vehicle.snapshot_vehicle_id();
     if snapshot_vehicle_id == 0 {
@@ -2483,8 +2508,11 @@ fn restore_vehicle(
                 status,
                 waiting.traversal,
                 waiting.membership,
-                vehicle.conflict_eligibility().is_some()
-                    || vehicle.conflict_reservation().is_some(),
+                crate::kernel::world::RestoreAdmission {
+                    conflict_authority: vehicle.conflict_eligibility().is_some()
+                        || vehicle.conflict_reservation().is_some(),
+                    defer_overlap,
+                },
             )
             .map_err(|error| SnapshotRestoreError::Vehicle {
                 snapshot_vehicle_id,

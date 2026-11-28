@@ -63,6 +63,22 @@ struct StepKinematics {
 }
 
 impl StepKinematics {
+    fn committed_travel_um(&self, step: RouteHandoffBrakingStep) -> u64 {
+        match step.motion {
+            RouteHandoffBrakingMotion::Trapezoid => {
+                let twice =
+                    u64::from(self.current + step.next_speed_mm_s) * u64::from(self.delta_ms);
+                let whole = twice / 2;
+                whole + u64::from(twice % 2 == 1 && whole % 2 == 1)
+            }
+            // stop_distance_um 是向上取整的准入上界。这里提交物理行程的最近格，
+            // 避免将证明用的上界逐拍累加为位置。
+            RouteHandoffBrakingMotion::InTickStop => (f64::from(self.current).powi(2)
+                / (2. * f64::from(self.decel)))
+            .round_ties_even() as u64,
+        }
+    }
+
     fn new(current: u32, delta_ms: u32, decel: f32) -> Result<Self, RouteHandoffBrakingError> {
         if current > MAX_SPEED_MM_S
             || !(4..=1_000).contains(&delta_ms)
@@ -224,20 +240,71 @@ impl RouteHandoffSpeedPlan {
         let motion = StepKinematics::new(current, self.fixed_delta_ms, self.comfort_decel).ok()?;
         Some(motion.room_um(proposed.min(self.admitted_speed_mm_s), 0))
     }
-    /// 已在同一轨迹上定位到此行程时，可收紧整毫米总长下界。跨越终点仍需另证。
-    pub(super) fn preview_from_proven_position(
+    /// 在普通位移预算内核对已定位候选的终速、实际行程与续行需求。
+    /// 仅已持有预约且保留普通步进的终速提案时，可承接该步进的紧急制动。
+    pub(super) fn motion_from_proven_position(
         &self,
         rear_um: u64,
         current_mm_s: u32,
         proposed_mm_s: u32,
-    ) -> Result<RouteHandoffBrakingStep, RouteHandoffBrakingError> {
-        StepKinematics::new(current_mm_s, self.fixed_delta_ms, self.comfort_decel)?.preview(
+        ordinary_travel_um: u64,
+        existing_with_ordinary_proposal: bool,
+    ) -> Result<(u32, u64, bool), RouteHandoffBrakingError> {
+        let motion = StepKinematics::new(current_mm_s, self.fixed_delta_ms, self.comfort_decel)?;
+        // 约束速度和位移这一对提交值。整数速度梯形恰落在半微米时舍入到偶数，
+        // 故偶数行程预算还能容纳半微米。零终速另按服务减速度的拍内停稳轨迹处理。
+        let twice_room = ordinary_travel_um
+            .saturating_mul(2)
+            .saturating_add(u64::from(ordinary_travel_um.is_multiple_of(2)));
+        let speed_room =
+            (twice_room / u64::from(self.fixed_delta_ms)).saturating_sub(u64::from(current_mm_s));
+        let proposal = proposed_mm_s.min(u32::try_from(speed_room).unwrap_or(u32::MAX));
+        let preview = |speed| match motion.preview(
             &self.windows,
             self.length_lower_um.max(rear_um),
             self.admitted_speed_mm_s,
             [rear_um; 2],
+            speed,
+        ) {
+            Ok(step) => Ok((step, false)),
+            Err(RouteHandoffBrakingError::NeedsContinuation { candidate_step, .. }) => {
+                Ok((candidate_step, true))
+            }
+            Err(error) => Err(error),
+        };
+        if let Ok((step, may_finish)) = preview(proposal) {
+            let travel = motion.committed_travel_um(step);
+            if travel <= ordinary_travel_um {
+                return Ok((step.next_speed_mm_s, travel, may_finish));
+            }
+        }
+        // 已进入的车辆可能被普通信号或硬边界紧急截停。沿用普通内核已裁定的
+        // 位移与终速，仍须证明候选沿途限速，以及下一拍继续服务制动的余量。
+        if !existing_with_ordinary_proposal || proposed_mm_s >= current_mm_s {
+            return Err(RouteHandoffBrakingError::InsufficientBraking);
+        }
+        let service_floor = current_mm_s.saturating_sub(motion.max_drop);
+        let (witness, _) = preview(service_floor.max(proposed_mm_s))?;
+        let end_um = rear_um
+            .checked_add(ordinary_travel_um)
+            .ok_or(RouteHandoffBrakingError::InvalidInput)?;
+        let first = self
+            .windows
+            .partition_point(|w| w.travel_mm[1] < rear_um / 1_000);
+        if proposed_mm_s > witness.next_speed_mm_s
+            || ordinary_travel_um > motion.committed_travel_um(witness)
+            || self.windows[first..]
+                .iter()
+                .take_while(|w| w.travel_mm[0] * 1000 <= end_um)
+                .any(|w| current_mm_s > w.speed_mm_s)
+        {
+            return Err(RouteHandoffBrakingError::InsufficientBraking);
+        }
+        Ok((
             proposed_mm_s,
-        )
+            ordinary_travel_um,
+            end_um > self.length_lower_um,
+        ))
     }
 
     /// 后轴累计行程已精确落在整数毫米时，求一拍服务制动运动。终速提案的驱动
@@ -292,6 +359,47 @@ impl RouteHandoffSpeedPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn committed_speed_and_travel_share_the_ordinary_movement_budget() {
+        let plan = RouteHandoffSpeedPlan {
+            windows: Vec::new(),
+            length_lower_um: 30_000_000,
+            admitted_speed_mm_s: 5_000,
+            comfort_decel: 2.,
+            fixed_delta_ms: 100,
+            admission_work: 0,
+            clearance_work: 0,
+            travel_work: 0,
+        };
+        // 已在候选中段。普通运动只准 95 毫米，1000→1000 的全拍行程为 100 毫米。
+        let bounded = |speed, proposed, room| {
+            plan.motion_from_proven_position(12_000_000, speed, proposed, room, true)
+        };
+        assert_eq!(bounded(1_000, 1_000, 95_000), Ok((900, 95_000, false)));
+        assert_eq!(bounded(0, 100, 0), Ok((0, 0, false)));
+        assert_eq!(
+            bounded(1_000, 1_000, 0),
+            Err(RouteHandoffBrakingError::InsufficientBraking)
+        );
+        // 3²/(2×2) 为 2.25 微米，制动证明取 3，实际提交取最近格 2。
+        assert_eq!(stop_distance_um(3, 2.), 3);
+        assert_eq!(bounded(3, 10, 2), Ok((0, 2, false)));
+        assert_eq!(bounded(1_000, 600, 0), Ok((600, 0, false)));
+        assert_eq!(
+            plan.motion_from_proven_position(12_000_000, 1_000, 600, 0, false),
+            Err(RouteHandoffBrakingError::InsufficientBraking)
+        );
+        // 普通内核的紧急制动只对已经持有的预约生效，仍需逐段证明实际途经的净空限速。
+        let restricted = RouteHandoffSpeedPlan {
+            windows: vec![window(12_060, 12_070, 950)],
+            ..plan
+        };
+        assert_eq!(
+            restricted.motion_from_proven_position(12_000_000, 1_000, 600, 70_000, true),
+            Err(RouteHandoffBrakingError::InsufficientBraking)
+        );
+    }
 
     fn window(start: u64, end: u64, speed_mm_s: u32) -> ClearanceSpeedWindow {
         ClearanceSpeedWindow {

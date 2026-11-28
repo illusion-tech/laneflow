@@ -3873,7 +3873,10 @@ pub(crate) mod tests {
                 VehicleStatus::Active,
                 None,
                 None,
-                true,
+                crate::kernel::world::RestoreAdmission {
+                    conflict_authority: true,
+                    ..Default::default()
+                },
             )
             .expect("reservation vehicle");
         install_conflict_reservation(&mut world, route, vehicle);

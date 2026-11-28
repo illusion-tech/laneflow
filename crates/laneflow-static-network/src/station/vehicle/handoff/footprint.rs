@@ -31,6 +31,25 @@ pub struct HandoffSideFootprint {
     pub enclosure: StationCandidates,
     /// 至少一个严格位于此侧的实体点所在的可能位置。跨切点时各候选边是备选。
     pub witness: StationCandidates,
+    passed: PassedStations,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PassedStations {
+    Below(u64),
+    Above(u64),
+}
+
+impl HandoffSideFootprint {
+    /// 至少一个已严格归到本侧的车身采样点或前杠中点，沿行驶方向严格越过此截面。
+    /// 未证越线时，外包与截面相交也不授予通行权。
+    #[must_use]
+    pub fn has_passed_station(&self, station_mm: u64) -> bool {
+        match self.passed {
+            PassedStations::Below(limit) => station_mm < limit,
+            PassedStations::Above(limit) => station_mm > limit,
+        }
+    }
 }
 
 /// 给定后轴位置域内的前杠中点与两侧车身。此结果不发放或释放交通预约。
@@ -62,6 +81,7 @@ pub struct HandoffFootprintReport {
 struct Side {
     enclosure: I,
     witness: I,
+    leading: I,
 }
 
 struct Stations {
@@ -255,6 +275,7 @@ fn stations(
                     (Some(x), Some(y)) => {
                         x.enclosure = x.enclosure.hull(y.enclosure);
                         x.witness = x.witness.hull(y.witness);
+                        x.leading = x.leading.hull(y.leading);
                     }
                     (None, None) => {}
                     _ => return Err(Failure::Boundary),
@@ -277,7 +298,12 @@ fn stations(
         return Err(Failure::Boundary);
     }
     let regions = body_regions(c, bound, &pose, coords, work)?;
+    let increasing = bound.trace.stations_mm[0] < bound.trace.stations_mm[1];
     let mut witnesses = [None; 2];
+    let mut leading: [Option<I>; 2] = [None; 2];
+    if let Some(side) = front_side {
+        leading[side as usize] = Some(front.station);
+    }
     let [long, lat, height] = coords;
     for a in [long.lo, long.hi, long.lo.midpoint(long.hi)] {
         for b in [lat.lo, lat.hi] {
@@ -285,23 +311,32 @@ fn stations(
                 let p = pose.point(I::point(a), I::point(b), I::point(z));
                 let projected = c.surface.project(horizontal(p), work)?;
                 if let Some(side) = HandoffLaneSide::of(signed(projected)) {
-                    witnesses[side as usize].get_or_insert(projected.station);
+                    let i = side as usize;
+                    witnesses[i].get_or_insert(projected.station);
+                    // 任一侧的后角可先被找到。越线证据另选保证沿行驶方向最靠前的点。
+                    let previous = leading[i].get_or_insert(projected.station);
+                    if (increasing && projected.station.lo > previous.lo)
+                        || (!increasing && projected.station.hi < previous.hi)
+                    {
+                        *previous = projected.station;
+                    }
                 }
             }
-        }
-        if (0..2).all(|i| regions[i].is_some() == witnesses[i].is_some()) {
-            break;
         }
     }
     let mut sides = [None; 2];
     let rear = c.surface.project(horizontal(pose.rear), work)?;
     for i in 0..2 {
-        match (regions[i], witnesses[i]) {
-            (Some(coords), Some(witness)) => {
+        match (regions[i], witnesses[i], leading[i]) {
+            (Some(coords), Some(witness), Some(leading)) => {
                 let enclosure = station_enclosure(c, &pose, coords, rear, work)?;
-                sides[i] = Some(Side { enclosure, witness });
+                sides[i] = Some(Side {
+                    enclosure,
+                    witness,
+                    leading,
+                });
             }
-            (None, None) => {}
+            (None, None, _) => {}
             _ => return Err(Failure::Boundary),
         }
     }
@@ -402,9 +437,16 @@ impl SharedNetworkRevision {
             let mut sides = [None, None];
             for (i, side) in positions.sides.into_iter().enumerate() {
                 if let Some(side) = side {
+                    let [lo, hi] = nanometres(side.leading)?;
                     sides[i] = Some(HandoffSideFootprint {
                         enclosure: address(i, side.enclosure)?,
                         witness: address(i, side.witness)?,
+                        // 只保存可严格越过的整数毫米截面；恰好接触时不能放行。
+                        passed: if q.rear_stations_mm[0] < q.rear_stations_mm[1] {
+                            PassedStations::Below(lo.div_ceil(NM_PER_MM))
+                        } else {
+                            PassedStations::Above(hi / NM_PER_MM)
+                        },
                     });
                 }
             }

@@ -6534,7 +6534,7 @@ pub(crate) mod tests {
                 crate::VehicleStatus::Active,
                 None,
                 None,
-                false,
+                Default::default(),
             )
             .expect("follower spawn");
         world

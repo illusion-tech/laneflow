@@ -1,6 +1,7 @@
 use super::stop_line::{SourceStop, car_trial, road_lanes, stop_world};
 use super::*;
 use laneflow_runtime::deterministic_state_digest;
+use laneflow_static_contract::SignalAspect;
 use laneflow_static_network::vehicle::HandoffLaneSide;
 
 fn stations(direction: RoadEditingLaneDirection, distances_m: [u64; 2]) -> [u64; 2] {
@@ -8,6 +9,57 @@ fn stations(direction: RoadEditingLaneDirection, distances_m: [u64; 2]) -> [u64;
         RoadEditingLaneDirection::Forward => m * 1_000,
         RoadEditingLaneDirection::Backward => (50 - m) * 1_000,
     })
+}
+
+#[test]
+fn a_target_corner_proves_passage_before_the_front_midpoint_reaches_that_lane() {
+    for direction in [
+        RoadEditingLaneDirection::Forward,
+        RoadEditingLaneDirection::Backward,
+    ] {
+        let world = stop_world(
+            SourceStop::TargetSignal(&[("green", SignalAspect::Green, 15_000)]),
+            direction,
+        );
+        let revision = world.revision();
+        let (section, source, target) = road_lanes(&revision);
+        let binding = world
+            .bind_route_handoff(
+                &RouteRegisterInput::new(vec![
+                    source[0], source[1], source[2], target[1], target[2],
+                ]),
+                RouteHandoffOccurrence {
+                    revision: revision.network_revision(),
+                    source_index: 2,
+                    owner: BoundaryOwner::Section(section),
+                    left_index: 0,
+                    stations_mm: [24_000, 26_000],
+                },
+            )
+            .unwrap();
+        let trial = car_trial(&revision, stations(direction, [10, 40]));
+        let preview = world.preview_route_handoff(&binding, &trial).unwrap();
+        let foot = preview
+            .sample_after_travel(0, 11_300, TRAVEL_TOLERANCE_MM, trial.limits)
+            .unwrap()
+            .sample
+            .unwrap()
+            .footprint;
+        assert_eq!(foot.front_side, HandoffLaneSide::Source);
+        let side = foot.sides[1].as_ref().unwrap();
+        let [at_24m, at_26m] = stations(direction, [24, 26]);
+        let rear = side.witness.station_relation(at_24m);
+        assert_eq!(
+            rear,
+            if direction == RoadEditingLaneDirection::Forward {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        );
+        assert!(side.has_passed_station(at_24m));
+        assert!(!side.has_passed_station(at_26m));
+    }
 }
 
 #[test]

@@ -444,7 +444,10 @@ fn world_with_conflict_reservation_config(config: WorldConfig) -> (TrafficWorld,
             VehicleStatus::Active,
             None,
             None,
-            true,
+            crate::kernel::world::RestoreAdmission {
+                conflict_authority: true,
+                ..Default::default()
+            },
         )
         .expect("upstream vehicle");
     install_conflict_reservation(&mut world, route, vehicle);
@@ -626,7 +629,10 @@ pub(crate) fn world_with_conflict_eligibility() -> (TrafficWorld, VehicleHandle)
             VehicleStatus::Active,
             None,
             None,
-            true,
+            crate::kernel::world::RestoreAdmission {
+                conflict_authority: true,
+                ..Default::default()
+            },
         )
         .expect("restore vehicle before conflict Gate");
     world.state.committed.conflict_eligibility.resize(
@@ -1102,7 +1108,10 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
             VehicleStatus::Active,
             None,
             None,
-            true,
+            crate::kernel::world::RestoreAdmission {
+                conflict_authority: true,
+                ..Default::default()
+            },
         )
         .expect("restore Candidate vehicle");
     world.state.committed.conflict_eligibility.resize(

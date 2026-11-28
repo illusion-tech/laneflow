@@ -1629,8 +1629,13 @@ impl crate::kernel::state::WorldState {
             // 让出的结果不会返回给调用方。
             return Err(ParkingError::AllocationFailed);
         }
-        if let Some(blocker) =
-            self.overlap_blocker(route, occurrence, exit_progress_mm, state.length_mm)
+        let occupancy_error = |error| match error {
+            crate::StepError::OccupancyAllocFailed => ParkingError::AllocationFailed,
+            _ => ParkingError::InvariantViolation,
+        };
+        if let Some(blocker) = self
+            .placement_overlap_blocker(route, occurrence, exit_progress_mm, state.length_mm)
+            .map_err(occupancy_error)?
         {
             return Err(ParkingError::LeavePhysicalOverlap { blocker });
         }
@@ -1638,11 +1643,7 @@ impl crate::kernel::state::WorldState {
             // 让出的结果不会返回给调用方。
             return Err(ParkingError::AllocationFailed);
         }
-        self.ensure_current_occupancy()
-            .map_err(|error| match error {
-                crate::StepError::OccupancyAllocFailed => ParkingError::AllocationFailed,
-                _ => ParkingError::InvariantViolation,
-            })?;
+        self.ensure_current_occupancy().map_err(occupancy_error)?;
         self.validate_leave_followers(candidate, &self.derived.occupancy)?;
         match self.check_active_conflict_capability(
             route,

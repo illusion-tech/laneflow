@@ -11,8 +11,8 @@ use laneflow_static_network::{
 use std::sync::Arc;
 
 use super::{
-    CursorRun, HandoffRouteRef, LocatedTrajectory, RouteHandoffBrakingError,
-    RouteHandoffBrakingMotion, RouteHandoffSpeedPlan, RouteHandoffTrial, sample::LocatedSample,
+    CursorRun, HandoffRouteRef, LocatedTrajectory, RouteHandoffSpeedPlan, RouteHandoffTrial,
+    sample::LocatedSample,
 };
 use crate::{
     DownstreamInterval, RouteHandle, StepError, StepOutcome, TickInput, TrafficWorld,
@@ -530,14 +530,9 @@ fn stop_lines_allow(
                 == crate::GatePolicyDecision::DenyAndStop
             {
                 let already_entered = |foot: &HandoffFootprint| {
-                    foot.sides[index].as_ref().is_some_and(|side| {
-                        let relation = side.witness.station_relation(station);
-                        if path.query.rear_stations_mm[0] < path.query.rear_stations_mm[1] {
-                            relation.is_gt()
-                        } else {
-                            relation.is_lt()
-                        }
-                    })
+                    foot.sides[index]
+                        .as_ref()
+                        .is_some_and(|side| side.has_passed_station(station))
                 };
                 // 先前已提交的这一侧实体确已越线，允许尾部清空。黄灯仅在有实体见证时
                 // 才能以上界距离套用原有紧急停车困境裁决。
@@ -626,7 +621,8 @@ impl StepWorkspace<'_> {
                 &trial,
                 vehicle,
                 config,
-                world.binding.config.fixed_delta_time_ms() as u32,
+                u32::try_from(world.binding.config.fixed_delta_time_ms())
+                    .map_err(|_| StepError::HandoffUnproven)?,
             ) else {
                 continue;
             };
@@ -792,7 +788,8 @@ impl StepWorkspace<'_> {
             .config
             .handoff_driving()
             .ok_or(StepError::InvalidHandoffRequest)?;
-        let dt = world.binding.config.fixed_delta_time_ms() as u32;
+        let dt = u32::try_from(world.binding.config.fixed_delta_time_ms())
+            .map_err(|_| StepError::HandoffUnproven)?;
         let route = world
             .compiled_route(vehicle.route)
             .ok_or(StepError::HandoffUnproven)?;
@@ -846,13 +843,13 @@ impl StepWorkspace<'_> {
             .vehicle_profile(vehicle.profile)
             .ok_or(StepError::HandoffUnproven)?;
         if physical.iter().any(|p| {
-            let interval = DownstreamInterval::new(p.edge, p.start_mm, p.end_mm)
-                .expect("normalized nonempty protection");
-            self.conflict_read().handoff_downstream_conflicts(
-                interval,
-                vehicle.handle,
-                profile.min_gap_mm(),
-            )
+            DownstreamInterval::new(p.edge, p.start_mm, p.end_mm).is_none_or(|interval| {
+                self.conflict_read().handoff_downstream_conflicts(
+                    interval,
+                    vehicle.handle,
+                    profile.min_gap_mm(),
+                )
+            })
         }) {
             return Ok(None);
         }
@@ -949,29 +946,15 @@ impl StepWorkspace<'_> {
         };
         let ordinary_um = (u64::from(ordinary_mm) * 1000 + u64::from(ordinary.carry_um))
             .saturating_sub(u64::from(vehicle.carry_um));
-        let (step, may_finish) = match plan.preview_from_proven_position(
+        let Ok((next_speed, travel, may_finish)) = plan.motion_from_proven_position(
             candidate.rear_travel_um,
             vehicle.speed_mm_s,
             proposed,
-        ) {
-            Ok(step) => (step, false),
-            Err(RouteHandoffBrakingError::NeedsContinuation { candidate_step, .. }) => {
-                (candidate_step, true)
-            }
-            Err(_) => return Ok(None),
+            ordinary_um,
+            existing && proposed == ordinary.speed_mm_s,
+        ) else {
+            return Ok(None);
         };
-        let travel = match step.motion {
-            RouteHandoffBrakingMotion::Trapezoid => {
-                let twice = (u64::from(vehicle.speed_mm_s) + u64::from(step.next_speed_mm_s))
-                    * u64::from(dt);
-                let whole = twice / 2;
-                whole + u64::from(twice % 2 == 1 && whole % 2 == 1)
-            }
-            RouteHandoffBrakingMotion::InTickStop => (f64::from(vehicle.speed_mm_s).powi(2)
-                / (2. * f64::from(profile.comfort_decel())))
-            .round_ties_even() as u64,
-        };
-        let travel = travel.min(ordinary_um);
         if travel == 0 && !existing {
             return Ok(None);
         }
@@ -980,6 +963,7 @@ impl StepWorkspace<'_> {
             .checked_add(travel)
             .ok_or(StepError::HandoffUnproven)?;
         let mut moved = vehicle;
+        moved.speed_mm_s = next_speed;
         let terminal = if may_finish {
             terminal_remainder(&path, total, trial.limits.tracks)
         } else {
@@ -1012,20 +996,33 @@ impl StepWorkspace<'_> {
                 let Ok(index) = path.cursor_runs[1].resolve(target.edge) else {
                     return Ok(None);
                 };
-                let [start_mm, end_mm] = target.progress_mm;
-                let length =
-                    u64::from(revision.traffic().lane_lengths_millimetres()[target.edge.index()]);
-                let far = u64::from(end_mm) + max_remainder.div_ceil(1000);
                 if foot.sides[0].is_some()
-                    || far >= length
                     || max_remainder
                         > (u64::from(vehicle.length_mm) + u64::from(profile.min_gap_mm())) * 1000
                 {
                     return Ok(None);
                 }
-                let front = u32::try_from(u64::from(start_mm) + min_remainder / 1000)
-                    .map_err(|_| StepError::HandoffUnproven)?;
-                (index, front, (min_remainder % 1000) as u16, foot, rear)
+                let endpoint = VehicleState {
+                    route_edge_index: index,
+                    progress_mm: target.progress_mm[0],
+                    carry_um: 0,
+                    ..vehicle
+                };
+                moved = self.continue_after_handoff(
+                    endpoint,
+                    route,
+                    min_remainder,
+                    travel,
+                    next_speed,
+                    self.waiting_stop_for(&vehicle)?,
+                )?;
+                (
+                    moved.route_edge_index,
+                    moved.progress_mm,
+                    moved.carry_um,
+                    foot,
+                    rear,
+                )
             } else {
                 let Some((sample, _, mm)) = position_on(&path, total, trial.limits, existing)
                 else {
@@ -1072,7 +1069,6 @@ impl StepWorkspace<'_> {
         moved.route_edge_index = front_index;
         moved.progress_mm = front_mm;
         moved.carry_um = carry_um;
-        moved.speed_mm_s = step.next_speed_mm_s;
         candidate.front_handed_off = next_foot.front_side == HandoffLaneSide::Target;
         candidate.rear_travel_um = total;
         candidate.protections = if terminal.is_some() {
