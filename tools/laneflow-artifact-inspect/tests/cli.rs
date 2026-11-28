@@ -252,3 +252,31 @@ fn diff_enforces_tightened_budget_consistently_with_inspect() {
         stdout(&diff)
     );
 }
+
+#[test]
+fn value_domain_invalid_objects_exit_two_for_inspect_and_diff() {
+    // #1605：registry 合法而值域非法的对象不得报告 PASS 或「对象相同」。
+    for (index, mutation) in common::value_domain_mutations().iter().enumerate() {
+        let file = TempFile::new(&format!("value-invalid-{index}.bin"), &mutation.bytes);
+
+        let output = run(&["inspect", file.path_str()]);
+        assert_eq!(output.status.code(), Some(2), "{}", mutation.name);
+        assert!(stdout(&output).is_empty(), "{}", mutation.name);
+        assert!(
+            stderr(&output).contains("单对象结构与直接值域预检失败"),
+            "{}：{}",
+            mutation.name,
+            stderr(&output)
+        );
+
+        let output = run(&["diff", file.path_str(), file.path_str()]);
+        assert_eq!(output.status.code(), Some(2), "{}", mutation.name);
+        assert!(stdout(&output).contains("bytes: 相同"), "{}", mutation.name);
+        assert!(
+            stdout(&output).contains("无法完成比较"),
+            "{}",
+            mutation.name
+        );
+        assert!(!stdout(&output).contains("对象相同"), "{}", mutation.name);
+    }
+}

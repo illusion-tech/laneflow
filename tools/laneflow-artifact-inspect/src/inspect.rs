@@ -3,10 +3,10 @@
 //! 分层：[`ObjectFacts`] 是 wire 真相（magic、版本、全对象节/表/行/chunk
 //! 总数），在筛选作用之前计算、不可被展示策略改动；`sections` / `fields`
 //! 是 [`DisplayPolicy`](crate::session::DisplayPolicy) 筛选后的展示明细。
-//! 检查语义完全复用 `laneflow-format::preflight_object_registry`：预检在
-//! 无摘要探针的闭包内执行，本模块不解释未受检内容。
+//! 检查语义完全复用 `laneflow-format::preflight_object_values`（registry 结构
+//! 与直接值域两层）：预检在无摘要探针的闭包内执行，本模块不解释未受检内容。
 
-use laneflow_format::{FormatError, FormatLimits, RegistryCheckedObjectView, without_digest_probe};
+use laneflow_format::{FormatError, FormatLimits, RegistryCheckedObjectView};
 use laneflow_static_contract::{PortableObjectKind, Sha256Digest};
 
 use crate::session::{DisplayPolicy, InspectFilters, SessionConfig};
@@ -213,8 +213,7 @@ fn preflight_view(
     let kind = PortableObjectKind::from_magic(magic).ok_or(InspectError::UnknownMagic {
         magic: magic.to_vec(),
     })?;
-    without_digest_probe(|| laneflow_format::preflight_object_registry(bytes, kind, format_limits))
-        .map_err(InspectError::Preflight)
+    crate::check::preflight_object(bytes, kind, format_limits).map_err(InspectError::Preflight)
 }
 
 /// 事实域：遍历全对象（不受筛选影响）计算 wire 真相。
