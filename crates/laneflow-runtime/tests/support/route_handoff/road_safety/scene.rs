@@ -121,21 +121,29 @@ fn network(
         add(D::ParkingFacility(
             ParkingFacilityInput::try_new("parking").unwrap(),
         ));
-        let anchor = ParkingLaneAnchor::try_new(
-            LaneEdgeReference::local("left").unwrap(),
-            348.5 - f64::from(cuts_m[0]),
-        )
-        .unwrap();
-        add(D::ParkingSpace(
-            ParkingSpaceInput::try_new(
-                "space",
-                anchor.clone(),
-                anchor,
-                ParkingSpaceGeometry::try_new(1.5, 0., 5., 2.5).unwrap(),
+        for (space, lane, station) in [
+            ("space", 0, 348.5),
+            ("target-skipped", 1, 100.),
+            ("target-end", 1, 113.75),
+            ("target-near", 1, 113.8),
+            ("target-far", 1, 135.),
+        ] {
+            let anchor = ParkingLaneAnchor::try_new(
+                LaneEdgeReference::local(names[lane]).unwrap(),
+                station - f64::from(cuts_m[lane]),
             )
-            .unwrap()
-            .with_parking_facility(ParkingFacilityReference::local("parking").unwrap()),
-        ));
+            .unwrap();
+            add(D::ParkingSpace(
+                ParkingSpaceInput::try_new(
+                    space,
+                    anchor.clone(),
+                    anchor,
+                    ParkingSpaceGeometry::try_new(1.5, 0., 5., 2.5).unwrap(),
+                )
+                .unwrap()
+                .with_parking_facility(ParkingFacilityReference::local("parking").unwrap()),
+            ));
+        }
         add(D::ParticipantClass(
             ParticipantClassInput::try_new("motor").unwrap(),
         ));
@@ -183,14 +191,19 @@ pub(super) struct Change {
 
 impl Scene {
     pub(super) fn new(workers: u32) -> Self {
+        Self::at_interval(workers, 100)
+    }
+
+    pub(super) fn at_interval(workers: u32, dt: u64) -> Self {
         static REVISION: OnceLock<Arc<SharedNetworkRevision>> = OnceLock::new();
-        Self::with_cuts(workers, [40; 3], &REVISION)
+        Self::with_cuts(workers, [40; 3], &REVISION, dt)
     }
 
     pub(super) fn with_cuts(
         workers: u32,
         cuts_m: [u32; 3],
         cache: &OnceLock<Arc<SharedNetworkRevision>>,
+        dt: u64,
     ) -> Self {
         let revision = network(cuts_m, cache);
         let rel = revision.traffic().relations();
@@ -201,7 +214,7 @@ impl Scene {
             route_capacity: 4,
             route_edge_occurrence_capacity: 32,
             route_conflict_occurrence_capacity: 16,
-            fixed_delta_time_ms: 100,
+            fixed_delta_time_ms: dt,
         })
         .unwrap()
         .with_handoff_driving(registration::driving());
@@ -250,12 +263,19 @@ impl Scene {
         front: u32,
         speed: u32,
     ) -> Change {
+        self.changer_on(lane, profile_key, front, speed, false)
+    }
+
+    pub(super) fn changer_on(
+        &mut self,
+        lane: usize,
+        profile_key: &str,
+        front: u32,
+        speed: u32,
+        returns_to_source: bool,
+    ) -> Change {
         let profile = conflict_profile(&self.revision, profile_key);
-        let input = RouteRegisterInput::new(vec![
-            self.lanes[lane][0],
-            self.lanes[lane][1],
-            self.lanes[1][1],
-        ]);
+        let mut edges = vec![self.lanes[lane][0], self.lanes[lane][1], self.lanes[1][1]];
         let occurrence = RouteHandoffOccurrence {
             revision: self.revision.network_revision(),
             source_index: 1,
@@ -263,10 +283,23 @@ impl Scene {
             left_index: u32::from(lane == 2),
             stations_mm: [u64::from(self.cut(lane).max(self.cut(1))) + 1, ROAD - 1],
         };
-        let binding = self.world.bind_route_handoff(&input, occurrence).unwrap();
+        let mut occurrences = vec![occurrence];
+        if returns_to_source {
+            edges.push(self.lanes[lane][1]);
+            occurrences.push(RouteHandoffOccurrence {
+                source_index: 2,
+                stations_mm: [345_000, ROAD - 1],
+                ..occurrence
+            });
+        }
+        let input = RouteRegisterInput::new(edges);
+        let binding = self
+            .world
+            .bind_route_handoffs(&input, &occurrences)
+            .unwrap();
         let route = self
             .world
-            .register_route(input.with_handoffs(vec![occurrence]))
+            .register_route(input.with_handoffs(occurrences))
             .unwrap();
         let vehicle = self
             .world
@@ -349,6 +382,26 @@ impl Scene {
 
     pub(super) fn held(&self, vehicle: VehicleHandle) -> bool {
         self.world.vehicle_route_handoffs(vehicle).next().is_some()
+    }
+
+    pub(super) fn space_at(
+        &self,
+        lane: usize,
+        station: u32,
+    ) -> laneflow_static_contract::ParkingSpaceOrdinal {
+        let relations = self.revision.traffic().relations();
+        relations
+            .parking_facility_spaces(laneflow_static_contract::ParkingFacilityOrdinal::from_raw(
+                0,
+            ))
+            .unwrap()
+            .iter()
+            .copied()
+            .find(|&space| {
+                relations.parking_space_entry(space)
+                    == Some((self.lanes[lane][1], station - self.cut(lane)))
+            })
+            .unwrap()
     }
 }
 

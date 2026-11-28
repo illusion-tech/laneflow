@@ -4,14 +4,13 @@ use laneflow_runtime::{
     LeaveParkingTarget, ParkedVehicleSpawnInput, ParkingTarget, SnapshotRestoreError,
     SnapshotRestoreLimits, SpawnError, VehicleSpawnInput, encode_lfrs, restore_lfrs,
 };
-use laneflow_static_contract::ParkingSpaceOrdinal;
 use std::sync::OnceLock;
 
 #[test]
 fn restore_checks_the_body_on_both_lanes_after_the_front_changes_occurrence() {
     let revision = OnceLock::new();
     for changer_first in [true, false] {
-        let mut scene = Scene::with_cuts(1, [40, 94, 40], &revision);
+        let mut scene = Scene::with_cuts(1, [40, 94, 40], &revision, 100);
         let (change, far) = if changer_first {
             let change = scene.changer(0, "car", 83_750, 10_000);
             (change, scene.straight(0, 346_800, 0))
@@ -105,6 +104,7 @@ fn restore_checks_the_body_on_both_lanes_after_the_front_changes_occurrence() {
             .unwrap();
         let mut resumed = restored.into_world();
         let target_lane = scene.lanes[1].clone();
+        let space = scene.space_at(0, 348_500);
         for (world, far) in [(&mut scene.world, far), (&mut resumed, resumed_far)] {
             let far_state = world.vehicle(far).unwrap();
             world.despawn_vehicle(far).unwrap();
@@ -129,7 +129,6 @@ fn restore_checks_the_body_on_both_lanes_after_the_front_changes_occurrence() {
                 .spawn_vehicle(spawn(far_progress))
                 .expect("源侧远端已腾空");
             world.despawn_vehicle(spawned).unwrap();
-            let space = ParkingSpaceOrdinal::from_raw(0);
             let parked = world
                 .spawn_parked_vehicle(
                     ParkedVehicleSpawnInput::new(

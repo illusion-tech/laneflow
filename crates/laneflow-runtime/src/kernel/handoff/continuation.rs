@@ -23,8 +23,26 @@ impl StepWorkspace<'_> {
             .ok_or(StepError::HandoffUnproven)?;
         let prior_mm =
             u32::try_from(prior_um.div_ceil(1000)).map_err(|_| StepError::HandoffUnproven)?;
-        let travel_mm =
+        let mut travel_mm =
             u32::try_from(remaining_um / 1000).map_err(|_| StepError::HandoffUnproven)?;
+        let mut parking_entry = None;
+        if let Some((reservation, laneflow_static_network::BoundedDistance::Finite(distance))) =
+            world
+                .parking_stop_distance(
+                    route,
+                    &endpoint,
+                    endpoint.route_edge_index as usize,
+                    self.committed.parking.binding(endpoint.handle),
+                )
+                .ok_or(StepError::ParkingInvariantViolation)?
+            && distance <= travel_mm
+        {
+            let (_, mm) = world
+                .reservation_anchor(reservation)
+                .ok_or(StepError::ParkingInvariantViolation)?;
+            parking_entry = Some((reservation.entry_route_occurrence(), mm));
+            travel_mm = distance;
+        }
         let initial_speed = endpoint.speed_mm_s;
         endpoint.carry_um = (remaining_um % 1000) as u16;
         world
@@ -37,6 +55,14 @@ impl StepWorkspace<'_> {
                 resource_stop,
             )
             .ok_or(StepError::HandoffUnproven)?;
+        if let Some(cursor) = parking_entry
+            && (endpoint.route_edge_index, endpoint.progress_mm) >= cursor
+        {
+            (endpoint.route_edge_index, endpoint.progress_mm) = cursor;
+            endpoint.carry_um = 0;
+            endpoint.speed_mm_s = 0;
+            return Ok(endpoint);
+        }
         let traffic = self.binding.revision.traffic();
         let index = endpoint.route_edge_index as usize;
         let edge = route.edges[index].index();

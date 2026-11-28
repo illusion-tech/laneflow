@@ -373,6 +373,8 @@ Runtime 不在多个 entry 之间自动选一个，也不接受已经位于 comm
 Reserved Active vehicle 仍由 route/lane position 提供 authority。所选 entry 进入现行
 ParkingStop/constraint/traversal 边界：车辆不能越过目标后仍保持未解释 reservation。
 
+车辆申请横移时，若从候选结束处的目标侧前杠出发已无法沿路线抵达预约入口，世界保留停车预约，车辆继续按原路线行驶。已经进入横移的车辆再申请停车时，也从该前杠的路线出现和边内进度核对可达性。入口恰在候选终点或其后的普通续行范围内时，车辆仍须在所选入口零速到达。到达观测取自最终提交的车辆位置和速度。
+
 arrival 是 committed observation/query state，不新增可任意写入的 public `Arrived`
 vehicle status。它只在以下五项同时成立时为真：
 

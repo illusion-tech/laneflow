@@ -1270,7 +1270,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆句柄、
     /// 生命周期状态（`StaleVehicle` / `InvalidVehicleStatus`）、既有停车绑定
-    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、等待区遍历
+    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、横移导致入口不可达（`HandoffConflict`）、等待区遍历
     /// 冲突、准入策略、容量分配、命令游标耗尽或内部不变量等任一失败族命中时
     /// 返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；失败不改变占用
     /// 状态。
@@ -1292,6 +1292,18 @@ impl crate::kernel::state::WorldState {
             return Err(ParkingError::AccessDenied);
         }
         self.validate_forward_reachable(state, anchor.route_occurrence, anchor.progress_mm)?;
+        if let Ok(index) = self
+            .committed
+            .handoffs
+            .binary_search_by_key(&vehicle.index(), |h| h.vehicle.index())
+            && !self.committed.handoffs[index].parking_entry_reachable(
+                self.read_view(),
+                state,
+                (anchor.route_occurrence, anchor.progress_mm),
+            )
+        {
+            return Err(ParkingError::HandoffConflict);
+        }
         self.check_conflict_storage_for_parking(
             state,
             state,
@@ -2186,7 +2198,7 @@ impl TrafficWorld {
     ///
     /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆句柄、
     /// 生命周期状态（`StaleVehicle` / `InvalidVehicleStatus`）、既有停车绑定
-    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、等待区遍历
+    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、横移导致入口不可达（`HandoffConflict`）、等待区遍历
     /// 冲突、准入策略、容量分配、命令游标耗尽或内部不变量等任一失败族命中时
     /// 返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；失败不改变占用
     /// 状态。
@@ -2329,6 +2341,36 @@ impl TrafficWorld {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
+    /// 横移覆盖普通提案并改变了到达判定时，按实际提交的更新顺序重算本拍观察。
+    pub(super) fn rebuild_parking_arrivals(
+        self,
+        updates: &super::motion_updates::MotionUpdates,
+        arrivals: &mut Vec<ParkingArrivalObservation>,
+    ) -> Result<(), crate::StepError> {
+        arrivals.clear();
+        for index in 0..updates.active_len() {
+            let (_, next) = updates.get(index, &self.committed.vehicles);
+            let Some(ParkingBinding::Reserved(r)) = self.committed.parking.binding(next.handle)
+            else {
+                continue;
+            };
+            let previous = self
+                .vehicle_state(next.handle)
+                .ok_or(crate::StepError::ParkingInvariantViolation)?;
+            if self.parking_arrived_for(next, r) && !self.parking_arrived_for(previous, r) {
+                super::tick::push_parking_arrival(
+                    arrivals,
+                    ParkingArrivalObservation {
+                        vehicle: next.handle,
+                        target: r.target(),
+                    },
+                    self.binding.world_id,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     /// 校验锚点边位于路线的指定出现记录位置。
     pub(crate) fn validate_anchor_on_route(
         self,

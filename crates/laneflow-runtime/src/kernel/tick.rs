@@ -1213,7 +1213,7 @@ pub(crate) fn drop_motion_slot_at(position: usize) -> MotionSlotGapGuard {
 }
 
 /// 到达观察的规范消费：真实 `try_reserve(1)` + 追加（含注入失败面）。
-fn push_parking_arrival(
+pub(super) fn push_parking_arrival(
     parking_arrivals: &mut Vec<ParkingArrivalObservation>,
     arrival: ParkingArrivalObservation,
     _world_id: crate::WorldId,
@@ -5676,7 +5676,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             &mut parking_arrivals,
             updates,
         )?;
-        *changed_handoffs = self.stage_handoffs(&grants, updates, handoffs, plans)?;
+        *changed_handoffs =
+            self.stage_handoffs(&grants, updates, handoffs, plans, &mut parking_arrivals)?;
         #[cfg(test)]
         drop(motion_timer);
         #[cfg(feature = "execution-evidence")]

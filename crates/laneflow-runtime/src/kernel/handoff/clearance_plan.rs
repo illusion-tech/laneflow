@@ -168,7 +168,7 @@ fn minimum_envelope(
 
 // 仅对已经通过转向求证的有限正速度调用。乘法接近整数边界时用一次融合运算
 // 检查差值，防止先舍入到浮点整数带来多一毫米每秒的准入。
-fn admitted_speed_mm_s(speed_m_s: f64) -> u32 {
+pub(super) fn admitted_speed_mm_s(speed_m_s: f64) -> u32 {
     let speed = ((speed_m_s * 1_000.) as u32).min(MAX_SPEED_MM_S);
     if speed_m_s.mul_add(1_000., -f64::from(speed)) < 0. {
         speed - 1
