@@ -1,10 +1,14 @@
 //! 实际编制、登记和步进的动态换道。两条外侧实车道可分别向公共中道横移。
+#[path = "road_safety/grant_approaches.rs"]
+mod grant_approaches;
 #[path = "road_safety/parking.rs"]
 mod parking;
 #[path = "road_safety/restore.rs"]
 mod restore_overlap;
 #[path = "road_safety/scene.rs"]
 mod scene;
+#[path = "road_safety/simultaneous.rs"]
+mod simultaneous;
 #[path = "road_safety/terminal.rs"]
 mod terminal;
 use laneflow_runtime::{RouteHandoffEntrantReason, deterministic_state_digest};

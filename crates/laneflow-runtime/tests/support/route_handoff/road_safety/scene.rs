@@ -12,7 +12,10 @@ const ROAD: u64 = 350_000;
 pub(super) const TICK: TickInput = TickInput::new(100);
 
 fn network(
-    cuts_m: [u32; 3],
+    cuts_m: [&[u32]; 3],
+    length_m: u32,
+    car_length_m: f64,
+    spaces: &[(&str, usize, f64)],
     cache: &OnceLock<Arc<SharedNetworkRevision>>,
 ) -> Arc<SharedNetworkRevision> {
     Arc::clone(cache.get_or_init(|| {
@@ -36,7 +39,7 @@ fn network(
                 RoadAlignmentInput::try_new(
                     "road",
                     CanonicalFrameReference::local("frame").unwrap(),
-                    road_editing_line((0., 0.), (0., 350.)),
+                    road_editing_line((0., 0.), (0., f64::from(length_m))),
                 )
                 .unwrap(),
             )
@@ -93,51 +96,44 @@ fn network(
             .unwrap()
             .with_boundary_extents(boundaries),
         ));
-        for ((name, limit), cut) in names.into_iter().zip([10., 13.9, 10.]).zip(cuts_m) {
-            let first = format!("{name}-up");
-            let last = LaneEdgeReference::local(name).unwrap();
-            add(D::LaneEdge(
-                LaneEdgeInput::try_new(&first, limit, vec![last.clone()], None).unwrap(),
-            ));
-            add(D::LaneEdge(
-                LaneEdgeInput::try_new(name, limit, vec![], None).unwrap(),
-            ));
-            let first = LaneEdgeReference::local(first).unwrap();
+        for ((name, limit), cuts) in names.into_iter().zip([10., 13.9, 10.]).zip(cuts_m) {
+            let mut keys = vec![format!("{name}-up")];
+            keys.extend((1..cuts.len()).map(|i| format!("{name}-part-{i}")));
+            keys.push(name.to_owned());
+            let chain: Vec<_> = keys
+                .iter()
+                .map(|k| LaneEdgeReference::local(k.as_str()).unwrap())
+                .collect();
+            for (i, key) in keys.iter().enumerate() {
+                let next = chain.get(i + 1).cloned().into_iter().collect();
+                add(D::LaneEdge(
+                    LaneEdgeInput::try_new(key.as_str(), limit, next, None).unwrap(),
+                ));
+            }
             add(D::AuthoringLane(
                 AuthoringLaneInput::try_new(
                     name,
-                    first.clone(),
+                    chain[0].clone(),
                     RoadEditingLaneDirection::Forward,
                     LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
                     None,
                     section.clone(),
                 )
                 .unwrap()
-                .with_edge_chain(vec![first, last], vec![f64::from(cut)])
+                .with_edge_chain(chain, cuts.iter().map(|&m| f64::from(m)).collect())
                 .unwrap()
                 .with_wheel_support(Some(true)),
             ));
         }
-        add(D::ParkingFacility(
-            ParkingFacilityInput::try_new("parking").unwrap(),
-        ));
-        for (space, lane, station) in [
-            ("space", 0, 348.5),
-            ("source-exit-near", 0, 79.039),
-            ("source-exit-short", 0, 77.540),
-            ("source-exit-exact", 0, 77.539),
-            ("source-exit-touch", 0, 80.039),
-            ("source-exit-one-mm", 0, 80.038),
-            ("target-skipped", 1, 100.),
-            ("target-end", 1, 113.75),
-            ("target-near", 1, 113.8),
-            ("target-far", 1, 135.),
-            ("target-exit-tail-inside", 1, 125.363),
-            ("target-exit-tail-clear", 1, 125.364),
-        ] {
+        if !spaces.is_empty() {
+            add(D::ParkingFacility(
+                ParkingFacilityInput::try_new("parking").unwrap(),
+            ));
+        }
+        for &(space, lane, station) in spaces {
             let anchor = ParkingLaneAnchor::try_new(
                 LaneEdgeReference::local(names[lane]).unwrap(),
-                station - f64::from(cuts_m[lane]),
+                station - f64::from(*cuts_m[lane].last().unwrap()),
             )
             .unwrap();
             add(D::ParkingSpace(
@@ -155,7 +151,7 @@ fn network(
             ParticipantClassInput::try_new("motor").unwrap(),
         ));
         for (key, length, wheelbase, rear_overhang, gap) in [
-            ("car", 4.5, 2.65, 0.75, 2.5),
+            ("car", car_length_m, 2.65, 0.75, 2.5),
             ("long", 12., 6., 2., 2.5),
             ("zero-gap", 4.5, 2.65, 0.75, 0.),
         ] {
@@ -214,7 +210,37 @@ impl Scene {
         cache: &OnceLock<Arc<SharedNetworkRevision>>,
         dt: u64,
     ) -> Self {
-        let revision = network(cuts_m, cache);
+        let spaces = [
+            ("space", 0, 348.5),
+            ("source-exit-near", 0, 79.039),
+            ("source-exit-short", 0, 77.540),
+            ("source-exit-exact", 0, 77.539),
+            ("source-exit-touch", 0, 80.039),
+            ("source-exit-one-mm", 0, 80.038),
+            ("target-skipped", 1, 100.),
+            ("target-end", 1, 113.75),
+            ("target-near", 1, 113.8),
+            ("target-far", 1, 135.),
+            ("target-exit-tail-inside", 1, 125.363),
+            ("target-exit-tail-clear", 1, 125.364),
+        ];
+        let revision = network(
+            cuts_m.each_ref().map(std::slice::from_ref),
+            350,
+            4.5,
+            &spaces,
+            cache,
+        );
+        Self::install(workers, dt, revision)
+    }
+
+    pub(super) fn split_middle_lane() -> Self {
+        static REVISION: OnceLock<Arc<SharedNetworkRevision>> = OnceLock::new();
+        let revision = network([&[148], &[10, 150], &[24]], 200, 4.15, &[], &REVISION);
+        Self::install(1, 1_000, revision)
+    }
+
+    fn install(workers: u32, dt: u64, revision: Arc<SharedNetworkRevision>) -> Self {
         let rel = revision.traffic().relations();
         let section = rel.section_lanes(RoadSectionOrdinal::from_raw(0)).unwrap();
         let lanes = std::array::from_fn(|i| rel.authoring_edge_chain(section[i]).unwrap().to_vec());

@@ -171,6 +171,17 @@ pub(crate) struct HandoffGrants {
     plans: Vec<Arc<PreparedRouteHandoff>>,
 }
 
+impl HandoffGrants {
+    pub(super) fn selected(
+        &self,
+        vehicle: VehicleHandle,
+    ) -> Option<(&ActiveRouteHandoff, &PreparedRouteHandoff)> {
+        let record = self.records.iter().find(|r| r.vehicle == vehicle)?;
+        let plan = self.plans.iter().find(|p| p.vehicle == vehicle)?;
+        Some((record, plan))
+    }
+}
+
 impl TrafficWorld {
     /// 读取这辆车在当前成功提交拍仍有效的横移记录。
     #[must_use = "迭代器只有消费时才读取已提交状态"]
@@ -216,6 +227,36 @@ impl TrafficWorld {
 }
 
 impl ActiveRouteHandoff {
+    /// 已选轨迹及其已证行程下界。冷恢复和拍间缓存使用同一套准入与限速计划。
+    pub(super) fn entrant_path<'a>(
+        &self,
+        world: StepReadView<'a>,
+        route: &'a CompiledRoute,
+        vehicle: VehicleState,
+        selected: Option<&PreparedRouteHandoff>,
+    ) -> Option<(LocatedTrajectory<'a>, u64)> {
+        let binding = route.handoff_binding(&world.binding.revision)?;
+        let rebuilt;
+        let prepared = match selected.or_else(|| {
+            PreparedRouteHandoff::cached(&world.derived.handoff_plans, self, vehicle.route)
+                .map(Arc::as_ref)
+        }) {
+            Some(plan) => plan,
+            None => {
+                let trial = self.trial(&world.binding.revision, vehicle)?;
+                rebuilt = PreparedRouteHandoff::prepare(
+                    self,
+                    binding,
+                    &trial,
+                    vehicle,
+                    world.binding.config.handoff_driving()?,
+                    world.binding.config.fixed_delta_time_ms().try_into().ok()?,
+                )?;
+                &rebuilt
+            }
+        };
+        Some((prepared.located(binding)?, prepared.plan.length_lower_um))
+    }
     /// 停车命令须从本次横移可恢复普通行驶的前杠位置抵达入口。
     pub(in crate::kernel) fn parking_entry_reachable(
         &self,
@@ -336,7 +377,7 @@ impl ActiveRouteHandoff {
 
 impl LocatedTrajectory<'_> {
     /// 限速、余程及停车入口共用车尾清空时的唯一目标前杠游标。
-    fn terminal_front(
+    pub(super) fn terminal_front(
         &self,
         sweep: u32,
     ) -> Option<(HandoffStationRange, HandoffFootprint, (u32, u32))> {
@@ -384,7 +425,7 @@ impl LocatedTrajectory<'_> {
 
 /// 前杠列按已提交侧别取有向毫米下界。前杠可能横跨共边时保留源游标。
 /// 所有占用、停车和释放判断继续读取取样中的完整几何区间。
-fn position_on(
+pub(super) fn position_on(
     path: &LocatedTrajectory<'_>,
     travel_um: u64,
     limits: GeometryWorkLimits,
@@ -552,13 +593,17 @@ fn deferred_front_is_reserved(
         })
 }
 
-fn committed_position(vehicle: VehicleState, sample: &LocatedSample, progress_mm: u32) -> bool {
+pub(super) fn committed_position(
+    vehicle: VehicleState,
+    sample: &LocatedSample,
+    progress_mm: u32,
+) -> bool {
     sample.front_occurrence == vehicle.route_edge_index
         && vehicle.progress_mm == progress_mm
         && vehicle.carry_um == 0
 }
 
-fn matches_entry(vehicle: VehicleState, sample: &LocatedSample) -> bool {
+pub(super) fn matches_entry(vehicle: VehicleState, sample: &LocatedSample) -> bool {
     let Some(front) = sample.footprint.front.addresses().next() else {
         return false;
     };
@@ -568,7 +613,7 @@ fn matches_entry(vehicle: VehicleState, sample: &LocatedSample) -> bool {
         && (front.progress_mm[0]..=front.progress_mm[1]).contains(&observed)
 }
 
-fn swept(
+pub(super) fn swept(
     path: &LocatedTrajectory<'_>,
     rear: HandoffStationRange,
     limit: u32,
@@ -579,13 +624,13 @@ fn swept(
         .ok()
 }
 
-fn remaining_sweep(
+pub(super) fn remaining_sweep(
     path: &LocatedTrajectory<'_>,
-    trial: &RouteHandoffTrial,
     rear: HandoffStationRange,
+    limit: u32,
 ) -> Option<[Option<StationCandidates>; 2]> {
     let end = HandoffStationRange::from_millimetres([path.query.rear_stations_mm[1]; 2])?;
-    swept(path, rear.hull(end), trial.limits.sweep)
+    swept(path, rear.hull(end), limit)
 }
 
 fn stop_lines_allow(
@@ -762,14 +807,12 @@ impl StepWorkspace<'_> {
                 .relations()
                 .vehicle_profile(vehicle.profile)
                 .ok_or(StepError::HandoffUnproven)?;
-            let prior = world
-                .committed
-                .handoffs
-                .iter()
-                .chain(&grants.records)
-                .flat_map(|h| &h.protections);
+            let prior = world.committed.handoffs.iter().chain(&grants.records);
             if physical.iter().any(|p| {
-                prior.clone().any(|other| overlap(p, other))
+                prior
+                    .clone()
+                    .flat_map(|h| &h.protections)
+                    .any(|other| overlap(p, other))
                     || DownstreamInterval::new(p.edge, p.start_mm, p.end_mm).is_none_or(
                         |interval| {
                             self.conflict_read().handoff_downstream_conflicts(
@@ -788,9 +831,21 @@ impl StepWorkspace<'_> {
                 u32::MAX,
                 Some(vehicle.handle),
                 &physical,
+                Some(&grants),
             )
             .map_err(|_| StepError::HandoffUnproven)?;
             if entrants.side_blockers.iter().any(Option::is_some) {
+                continue;
+            }
+            // 刚选定的目标路径也须能在其他车的保护前停住，双方的源车道可能互不相交。
+            if super::entrants::selected_entrant_blocks(
+                world,
+                &record,
+                &prepared,
+                prior.flat_map(|held| &held.protections),
+            )
+            .map_err(|_| StepError::HandoffUnproven)?
+            {
                 continue;
             }
             record.protections = physical;
@@ -859,7 +914,7 @@ impl StepWorkspace<'_> {
                 let vehicle = world
                     .vehicle_state(handle)
                     .ok_or(StepError::HandoffUnproven)?;
-                match self.advance_handoff(vehicle, ordinary, candidate, existing, &grants.plans)? {
+                match self.advance_handoff(vehicle, ordinary, candidate, existing, grants)? {
                     Some(movement) => {
                         if let Some(crate::ParkingBinding::Reserved(r)) =
                             world.committed.parking.binding(handle)
@@ -900,7 +955,7 @@ impl StepWorkspace<'_> {
         ordinary: VehicleState,
         mut candidate: ActiveRouteHandoff,
         existing: bool,
-        new_plans: &[Arc<PreparedRouteHandoff>],
+        grants: &HandoffGrants,
     ) -> Result<Option<HandoffMovement>, StepError> {
         let world = self.read_view();
         let revision = &world.binding.revision;
@@ -923,7 +978,7 @@ impl StepWorkspace<'_> {
         let plans = if existing {
             &self.derived.handoff_plans[..]
         } else {
-            new_plans
+            &grants.plans
         };
         let prepared = match PreparedRouteHandoff::cached(plans, &candidate, vehicle.route) {
             Some(cached) => Arc::clone(cached),
@@ -952,7 +1007,7 @@ impl StepWorkspace<'_> {
         {
             return Ok(None);
         }
-        let Some(full) = remaining_sweep(&path, &trial, current.rear) else {
+        let Some(full) = remaining_sweep(&path, current.rear, trial.limits.sweep) else {
             return Ok(None);
         };
         let tick_travel_mm = world.handoff_tick_travel_mm(&trial);
@@ -1145,6 +1200,7 @@ impl StepWorkspace<'_> {
             u32::MAX,
             Some(vehicle.handle),
             &physical,
+            Some(grants),
         )
         .map_err(|_| StepError::HandoffUnproven)?;
         if entrants.side_blockers.iter().any(Option::is_some)
@@ -1173,7 +1229,7 @@ impl StepWorkspace<'_> {
         candidate.protections = if terminal.is_some() {
             physical
         } else {
-            let Some(remaining) = remaining_sweep(&path, &trial, next_rear) else {
+            let Some(remaining) = remaining_sweep(&path, next_rear, trial.limits.sweep) else {
                 return Ok(None);
             };
             let Some(next) = protections(route, &path, &remaining, vehicle, tick_travel_mm) else {
@@ -1251,7 +1307,7 @@ impl crate::kernel::state::WorldState {
                     }
                     let (sample, _, position) =
                         position_on(path, record.rear_travel_um, trial.limits, true)?;
-                    let sides = remaining_sweep(path, &trial, sample.rear)?;
+                    let sides = remaining_sweep(path, sample.rear, trial.limits.sweep)?;
                     let required = protections(
                         route,
                         path,
@@ -1282,6 +1338,7 @@ impl crate::kernel::state::WorldState {
                         u32::MAX,
                         Some(vehicle.handle),
                         &required,
+                        None,
                     )
                     .ok()?;
                     // 恢复的是整段剩余保护。源、目标及下游来车均须仍有停车余量。

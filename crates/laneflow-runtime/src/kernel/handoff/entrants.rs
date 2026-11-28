@@ -1,9 +1,15 @@
-//! 从已提交的普通路线和当拍车身位置，证明外部横移候选两侧的潜在进入者能否停车。
+//! 从已提交的车身和实际行驶路径，证明外部横移候选两侧的潜在进入者能否停车。
+mod active;
+use active::ActiveApproach;
 use laneflow_static_contract::LaneEdgeOrdinal;
 use laneflow_static_network::{BoundedDistance, StationAddress, StationCandidates};
 use thiserror::Error;
 
 use super::braking::{service_stop_distance_um, stop_from_cursor_mm};
+use super::execution::{
+    ActiveRouteHandoff, HandoffGrants, HandoffProtection, PreparedRouteHandoff,
+};
+use crate::kernel::phase::StepReadView;
 use crate::kernel::state::WorldState;
 use crate::kernel::tables::{CompiledRoute, distance_to_occurrence_progress};
 use crate::kernel::tick::MotionReach;
@@ -14,7 +20,7 @@ use crate::{VehicleHandle, VehicleState, VehicleStatus};
 pub struct RouteHandoffEntrant {
     /// 本世界中的活动车辆。
     pub vehicle: VehicleHandle,
-    /// 从已提交整数毫米车头沿自身路线到区间入口的毫米数。车身外包触及时为零。
+    /// 普通车取整数车头到入口的路线距离。换道车取当前姿态到可能首次触及的行程下界（毫米）。
     pub distance_mm: u32,
     /// 当前占用或沿本车路线接近的证明结果。
     pub reason: RouteHandoffEntrantReason,
@@ -27,7 +33,7 @@ pub enum RouteHandoffEntrantReason {
     Occupied,
     /// 前方区间的距离不足以按服务减速度留出反应时间和最小间距，或停止距离未证。
     CannotStop {
-        /// 从与 `distance_mm` 相同的整数车头原点到预计停点所需的毫米数，向上取整。
+        /// 从与 `distance_mm` 相同的拍初位置到预计停点所需的毫米数，向上取整。
         /// 缺少有效制动参数或行程无法表示时为 None。
         required_mm: Option<u64>,
         /// 本拍运动上界也未排除到达；单拍不可达的车辆仍可能需要提前制动。
@@ -40,7 +46,7 @@ pub enum RouteHandoffEntrantReason {
 pub struct RouteHandoffEntrants {
     /// 顺序为源、目标。各侧独立判定，同一车辆可能阻挡两侧。
     pub side_blockers: [Option<RouteHandoffEntrant>; 2],
-    /// 已访问的 live 车辆槽、边地址查询及额外路线距离分段的合计。
+    /// 已访问的 live 车辆槽、边地址查询、额外路线距离分段及有界横移几何查询的合计。
     pub work: u32,
 }
 
@@ -137,13 +143,47 @@ fn distance_mm(
     .ok_or_else(|| work.invariant())
 }
 
-impl Approach<'_> {
-    fn at(
+impl<'a> Approach<'a> {
+    fn new(
+        state: StepReadView<'a>,
+        vehicle: VehicleState,
+        work: &Work,
+    ) -> Result<Self, RouteHandoffEntrantError> {
+        let dt = state.binding.config.fixed_delta_time_ms();
+        let route = state
+            .compiled_route(vehicle.route)
+            .ok_or_else(|| work.invariant())?;
+        let profile = state
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(vehicle.profile)
+            .ok_or_else(|| work.invariant())?;
+        Ok(Self {
+            route,
+            vehicle,
+            required_mm: stop_from_cursor_mm(
+                service_stop_distance_um(
+                    vehicle.speed_mm_s,
+                    dt,
+                    profile.comfort_decel(),
+                    profile.min_gap_mm(),
+                ),
+                vehicle.carry_um,
+            ),
+            reach: MotionReach::from_tick(
+                vehicle.speed_mm_s,
+                profile.max_accel(),
+                dt as f32 / 1_000.0,
+            ),
+        })
+    }
+    fn ordinary_at(
         &self,
         address: StationAddress,
         work: &mut Work,
     ) -> Result<Option<RouteHandoffEntrant>, RouteHandoffEntrantError> {
-        work.charge(1)?;
         let state = self.vehicle;
         let cursor = state.route_edge_index;
         let front = (cursor, state.progress_mm);
@@ -194,17 +234,23 @@ impl Approach<'_> {
         if distance_mm == 0 {
             return Ok(occupied());
         }
-        if self
-            .required_mm
-            .is_some_and(|stop| u64::from(distance_mm) >= stop)
-        {
+        self.braking_blocker(u64::from(distance_mm), work)
+    }
+
+    fn braking_blocker(
+        &self,
+        distance_mm: u64,
+        work: &Work,
+    ) -> Result<Option<RouteHandoffEntrant>, RouteHandoffEntrantError> {
+        if self.required_mm.is_some_and(|stop| distance_mm >= stop) {
             return Ok(None);
         }
         // MotionReach 从实际车头起算。距离向下取整，避免排除仍可能在本拍触及的进入者。
-        let reach_distance_mm = distance_mm - u32::from(state.carry_um != 0);
+        let distance_mm = u32::try_from(distance_mm).map_err(|_| work.invariant())?;
+        let reach_distance_mm = distance_mm.saturating_sub(u32::from(self.vehicle.carry_um != 0));
         let may_reach_this_tick = self.reach.is_none_or(|r| !r.excludes(reach_distance_mm));
         Ok(Some(RouteHandoffEntrant {
-            vehicle: state.handle,
+            vehicle: self.vehicle.handle,
             distance_mm,
             reason: RouteHandoffEntrantReason::CannotStop {
                 required_mm: self.required_mm,
@@ -213,14 +259,28 @@ impl Approach<'_> {
         }))
     }
 
+    fn at(
+        &self,
+        active: Option<&ActiveApproach<'_>>,
+        address: StationAddress,
+        work: &mut Work,
+    ) -> Result<Option<RouteHandoffEntrant>, RouteHandoffEntrantError> {
+        work.charge(1)?;
+        match active {
+            Some(path) => path.at(self, address, work),
+            None => self.ordinary_at(address, work),
+        }
+    }
+
     fn on_side(
         &self,
+        active: Option<&ActiveApproach<'_>>,
         side: &StationCandidates,
         work: &mut Work,
     ) -> Result<Option<RouteHandoffEntrant>, RouteHandoffEntrantError> {
         let mut nearest: Option<RouteHandoffEntrant> = None;
         for address in side.addresses() {
-            if let Some(blocker) = self.at(address, work)? {
+            if let Some(blocker) = self.at(active, address, work)? {
                 if blocker.reason == RouteHandoffEntrantReason::Occupied {
                     return Ok(Some(blocker));
                 }
@@ -238,23 +298,62 @@ pub(super) fn check_entrants(
     sides: [Option<&StationCandidates>; 2],
     work_limit: u32,
 ) -> Result<RouteHandoffEntrants, RouteHandoffEntrantError> {
-    check_other_entrants(state.read_view(), sides, work_limit, None, &[])
+    check_other_entrants(state.read_view(), sides, work_limit, None, &[], None)
+}
+
+pub(super) fn selected_entrant_blocks<'p>(
+    state: StepReadView<'_>,
+    record: &ActiveRouteHandoff,
+    prepared: &PreparedRouteHandoff,
+    protections: impl Iterator<Item = &'p HandoffProtection>,
+) -> Result<bool, RouteHandoffEntrantError> {
+    let mut protections = protections
+        .filter(|p| matches!(p.role, 1 | 2 | 4))
+        .peekable();
+    if protections.peek().is_none() {
+        return Ok(false);
+    }
+    let mut work = Work {
+        used: 0,
+        limit: u32::MAX,
+    };
+    let vehicle = state
+        .vehicle_state(record.vehicle)
+        .ok_or_else(|| work.invariant())?;
+    let approach = Approach::new(state, vehicle, &work)?;
+    let selected = ActiveApproach::new(state, record, Some(prepared), &approach, &mut work)?;
+    for p in protections {
+        let length = state.binding.revision.traffic().lane_lengths_millimetres()[p.edge.index()];
+        // 源、目标扫过在车道末端包含物理切点。下游保护始终按半开区间计。
+        let hi = if p.role != 4 && p.end_mm == length {
+            length
+        } else {
+            p.end_mm - 1
+        };
+        let address = StationAddress {
+            edge: p.edge,
+            progress_mm: [p.start_mm, hi],
+        };
+        if approach.at(Some(&selected), address, &mut work)?.is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(super) fn check_other_entrants(
-    state: crate::kernel::phase::StepReadView<'_>,
+    state: StepReadView<'_>,
     sides: [Option<&StationCandidates>; 2],
     work_limit: u32,
     owner: Option<VehicleHandle>,
-    protections: &[super::execution::HandoffProtection],
+    protections: &[HandoffProtection],
+    prior: Option<&HandoffGrants>,
 ) -> Result<RouteHandoffEntrants, RouteHandoffEntrantError> {
     let mut work = Work {
         used: 0,
         limit: work_limit,
     };
     let mut side_blockers = [None; 2];
-    let dt = state.binding.config.fixed_delta_time_ms();
-    let relations = state.binding.revision.traffic().relations();
     for &handle in &state.committed.live_order {
         if (0..2).all(|i| {
             (sides[i].is_none() && (i != 1 || protections.is_empty())) || side_blockers[i].is_some()
@@ -273,37 +372,32 @@ pub(super) fn check_other_entrants(
         if v.status != VehicleStatus::Active {
             continue;
         }
-        let route = state
-            .compiled_route(v.route)
-            .ok_or_else(|| work.invariant())?;
-        let profile = relations
-            .vehicle_profile(v.profile)
-            .ok_or_else(|| work.invariant())?;
-        let approach = Approach {
-            route,
-            vehicle: v,
-            required_mm: stop_from_cursor_mm(
-                service_stop_distance_um(
-                    v.speed_mm_s,
-                    dt,
-                    profile.comfort_decel(),
-                    profile.min_gap_mm(),
-                ),
-                v.carry_um,
-            ),
-            reach: MotionReach::from_tick(v.speed_mm_s, profile.max_accel(), dt as f32 / 1_000.0),
-        };
+        let approach = Approach::new(state, v, &work)?;
+        let records = &state.committed.handoffs;
+        let record = records
+            .binary_search_by_key(&handle.index(), |h| h.vehicle.index())
+            .ok()
+            .map(|i| (&records[i], None))
+            .or_else(|| {
+                prior?
+                    .selected(handle)
+                    .map(|(record, plan)| (record, Some(plan)))
+            });
+        let active = record
+            .map(|(r, p)| ActiveApproach::new(state, r, p, &approach, &mut work))
+            .transpose()?;
         for (blocker, side) in side_blockers.iter_mut().zip(sides) {
             if blocker.is_none()
                 && let Some(side) = side
             {
-                *blocker = approach.on_side(side, &mut work)?;
+                *blocker = approach.on_side(active.as_ref(), side, &mut work)?;
             }
         }
         if side_blockers[1].is_none() {
             for p in protections.iter().filter(|p| p.role == 4) {
                 // 下游保护为非空半开区间；站位查询的上下界均包含在内。
                 if let Some(blocker) = approach.at(
+                    active.as_ref(),
                     StationAddress {
                         edge: p.edge,
                         progress_mm: [p.start_mm, p.end_mm - 1],
@@ -384,7 +478,7 @@ mod tests {
             progress_mm: [0, 100],
         };
         assert_eq!(
-            approach.at(address, &mut work).unwrap(),
+            approach.at(None, address, &mut work).unwrap(),
             Some(RouteHandoffEntrant {
                 vehicle: v,
                 distance_mm: 0,
@@ -394,9 +488,9 @@ mod tests {
         approach.vehicle.progress_mm -= 1;
         approach.vehicle.carry_um = 999;
         approach.required_mm = stop_from_cursor_mm(Some(0), 999);
-        assert_eq!(approach.at(address, &mut work).unwrap(), None);
+        assert_eq!(approach.at(None, address, &mut work).unwrap(), None);
         approach.required_mm = stop_from_cursor_mm(Some(2_000_000), 999);
-        let blocker = approach.at(address, &mut work).unwrap().unwrap();
+        let blocker = approach.at(None, address, &mut work).unwrap().unwrap();
         assert_eq!(blocker.distance_mm, 1);
         assert_eq!(
             blocker.reason,
@@ -410,7 +504,7 @@ mod tests {
         for (carry_um, expected) in [(0, false), (999, true)] {
             approach.vehicle.carry_um = carry_um;
             approach.required_mm = stop_from_cursor_mm(Some(2_000_000), carry_um);
-            let blocker = approach.at(address, &mut work).unwrap().unwrap();
+            let blocker = approach.at(None, address, &mut work).unwrap().unwrap();
             assert_eq!(blocker.distance_mm, 58);
             assert!(
                 matches!(blocker.reason, RouteHandoffEntrantReason::CannotStop {
@@ -444,7 +538,11 @@ mod tests {
         for carry_um in [0, 1, 999] {
             approach.vehicle.carry_um = carry_um;
             assert_eq!(
-                approach.at(address, &mut work).unwrap().unwrap().reason,
+                approach
+                    .at(None, address, &mut work)
+                    .unwrap()
+                    .unwrap()
+                    .reason,
                 RouteHandoffEntrantReason::Occupied
             );
         }
@@ -452,7 +550,7 @@ mod tests {
         approach.vehicle.progress_mm += 1;
         approach.vehicle.carry_um = 1;
         approach.required_mm = stop_from_cursor_mm(Some(24_999_000), 1);
-        let blocked = approach.at(address, &mut work).unwrap().unwrap();
+        let blocked = approach.at(None, address, &mut work).unwrap().unwrap();
         assert_eq!(blocked.distance_mm, 24_999);
         assert_eq!(
             blocked.reason,
@@ -464,10 +562,14 @@ mod tests {
         // 相等允许；无制动参数时仍不能证明让行。
         approach.required_mm = stop_from_cursor_mm(Some(24_998_999), 1);
         assert_eq!(approach.required_mm, Some(u64::from(blocked.distance_mm)));
-        assert_eq!(approach.at(address, &mut work).unwrap(), None);
+        assert_eq!(approach.at(None, address, &mut work).unwrap(), None);
         approach.required_mm = None;
         assert_eq!(
-            approach.at(address, &mut work).unwrap().unwrap().reason,
+            approach
+                .at(None, address, &mut work)
+                .unwrap()
+                .unwrap()
+                .reason,
             RouteHandoffEntrantReason::CannotStop {
                 required_mm: None,
                 may_reach_this_tick: false
@@ -482,14 +584,18 @@ mod tests {
         for carry_um in [0, 999] {
             approach.vehicle.carry_um = carry_um;
             assert_eq!(
-                approach.at(address, &mut work).unwrap().unwrap().reason,
+                approach
+                    .at(None, address, &mut work)
+                    .unwrap()
+                    .unwrap()
+                    .reason,
                 RouteHandoffEntrantReason::Occupied
             );
         }
         approach.vehicle.progress_mm += 1;
         assert_eq!(
             approach
-                .at(address, &mut work)
+                .at(None, address, &mut work)
                 .unwrap()
                 .unwrap()
                 .distance_mm,
@@ -498,7 +604,7 @@ mod tests {
         assert_eq!(work.used, 9);
         work.limit = work.used;
         assert_eq!(
-            approach.at(address, &mut work),
+            approach.at(None, address, &mut work),
             Err(RouteHandoffEntrantError::Budget { work: 9 })
         );
     }
