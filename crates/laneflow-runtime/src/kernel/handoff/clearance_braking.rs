@@ -235,6 +235,37 @@ impl StepKinematics {
 }
 
 impl RouteHandoffSpeedPlan {
+    fn preview_from_committed_travel(
+        &self,
+        motion: &StepKinematics,
+        rear_um: u64,
+        proposed_mm_s: u32,
+    ) -> Result<(RouteHandoffBrakingStep, bool), RouteHandoffBrakingError> {
+        match motion.preview(
+            &self.windows,
+            self.length_lower_um.max(rear_um),
+            self.admitted_speed_mm_s,
+            [rear_um; 2],
+            proposed_mm_s,
+        ) {
+            Ok(step) => Ok((step, false)),
+            Err(RouteHandoffBrakingError::NeedsContinuation { candidate_step, .. }) => {
+                Ok((candidate_step, true))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// 快照中的速度须可从已提交行程遵守当前和前方的静态限速；后继通行权由下一拍裁决。
+    pub(super) fn can_resume_at(&self, rear_um: u64, speed_mm_s: u32) -> bool {
+        StepKinematics::new(speed_mm_s, self.fixed_delta_ms, self.comfort_decel).is_ok_and(
+            |motion| {
+                self.preview_from_committed_travel(&motion, rear_um, speed_mm_s)
+                    .is_ok()
+            },
+        )
+    }
+
     /// 本拍按提案行驶，再逐拍采用车型可提交的最大服务减幅，最后一拍内停稳。
     pub(super) fn stop_horizon_um(&self, current: u32, proposed: u32) -> Option<u64> {
         let motion = StepKinematics::new(current, self.fixed_delta_ms, self.comfort_decel).ok()?;
@@ -259,19 +290,7 @@ impl RouteHandoffSpeedPlan {
         let speed_room =
             (twice_room / u64::from(self.fixed_delta_ms)).saturating_sub(u64::from(current_mm_s));
         let proposal = proposed_mm_s.min(u32::try_from(speed_room).unwrap_or(u32::MAX));
-        let preview = |speed| match motion.preview(
-            &self.windows,
-            self.length_lower_um.max(rear_um),
-            self.admitted_speed_mm_s,
-            [rear_um; 2],
-            speed,
-        ) {
-            Ok(step) => Ok((step, false)),
-            Err(RouteHandoffBrakingError::NeedsContinuation { candidate_step, .. }) => {
-                Ok((candidate_step, true))
-            }
-            Err(error) => Err(error),
-        };
+        let preview = |speed| self.preview_from_committed_travel(&motion, rear_um, speed);
         if let Ok((step, may_finish)) = preview(proposal) {
             let travel = motion.committed_travel_um(step);
             if travel <= ordinary_travel_um {

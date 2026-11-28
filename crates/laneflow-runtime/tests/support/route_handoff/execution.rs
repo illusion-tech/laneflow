@@ -1,12 +1,11 @@
 use super::stop_line::road_lanes;
 use super::*;
 use laneflow_runtime::{
-    ClearanceSpeedCurve, ClearanceSpeedPoint, HandoffDrivingConfig, RouteHandoffRequest,
-    SnapshotRestoreLimits, TickInput, TrafficWorld, VehicleSpawnInput, deterministic_state_digest,
-    encode_lfrs, restore_lfrs,
+    HandoffDrivingConfig, RouteHandoffRequest, SnapshotRestoreLimits, TickInput, TrafficWorld,
+    VehicleSpawnInput, deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
-use laneflow_static_contract::{MAX_SPEED_MM_S, SignalAspect};
-use std::num::NonZeroU32;
+use laneflow_static_contract::SignalAspect;
+use laneflow_static_network::SharedNetworkRevision;
 
 pub(super) fn drive_fixture(
     initial_speed: u32,
@@ -25,7 +24,20 @@ fn drive_on(
     dt: u64,
     source: RoadEditingSourceModule,
 ) -> (TrafficWorld, RouteHandoffRequest, WorldConfig) {
-    let revision = compile_road_editing_revision(source);
+    drive_revision(
+        initial_speed,
+        dt,
+        compile_road_editing_revision(source),
+        registration::driving(),
+    )
+}
+
+pub(super) fn drive_revision(
+    initial_speed: u32,
+    dt: u64,
+    revision: Arc<SharedNetworkRevision>,
+    driving: HandoffDrivingConfig,
+) -> (TrafficWorld, RouteHandoffRequest, WorldConfig) {
     let config = WorldConfig::try_new(WorldConfigInput {
         vehicle_capacity: 2,
         route_capacity: 2,
@@ -34,21 +46,7 @@ fn drive_on(
         fixed_delta_time_ms: dt,
     })
     .unwrap()
-    .with_handoff_driving(HandoffDrivingConfig {
-        curve: ClearanceSpeedCurve::try_new(vec![
-            ClearanceSpeedPoint {
-                clearance_mm: 0,
-                speed_mm_s: 1_000,
-            },
-            ClearanceSpeedPoint {
-                clearance_mm: 100,
-                speed_mm_s: MAX_SPEED_MM_S,
-            },
-        ])
-        .unwrap(),
-        max_span_mm: NonZeroU32::new(3_000).unwrap(),
-        travel_tolerance_mm: NonZeroU32::new(5).unwrap(),
-    });
+    .with_handoff_driving(driving);
     let mut world = install_fixture(Arc::clone(&revision), config).unwrap();
     let (section, src, dst) = road_lanes(&revision);
     let occurrence = RouteHandoffOccurrence {

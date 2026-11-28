@@ -237,6 +237,80 @@ fn a_positive_creep_speed_does_not_admit_a_same_height_body_contact() {
 }
 
 #[test]
+fn restoring_an_active_handoff_checks_its_speed_at_the_saved_rear_travel() {
+    use crate::{snapshot_wire as wire, wire_table_field_offset};
+    use laneflow_runtime::{
+        SnapshotRestoreError, SnapshotRestoreLimits, TickInput, encode_lfrs, restore_lfrs,
+    };
+    let (fixture, binding, mut trial) = world_with_post(0., -2.443, Forward);
+    let (mut world, request, config) =
+        execution::drive_revision(2_000, 100, fixture.revision(), driving_config());
+    trial.speed_m_s = request.speed_m_s;
+    let plan = world
+        .preview_route_handoff_speed_plan(&binding, 2, &trial, config.handoff_driving().unwrap())
+        .unwrap();
+    let [slow] = plan.windows() else {
+        panic!("{plan:?}")
+    };
+    let tick = TickInput::new(100);
+    world.step_with_route_handoffs(tick, &[request]).unwrap();
+    let check = |world: &TrafficWorld, valid: u32, invalid: u32| {
+        let mut bytes = encode_lfrs(&world.capture_snapshot().unwrap());
+        let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+        let vehicle = root.vehicles().get(0);
+        let offset = wire_table_field_offset(vehicle._tab, wire::SnapshotVehicle::VT_SPEED_MM_S);
+        let restore = |bytes: &[u8]| {
+            restore_lfrs(
+                bytes,
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                world.execution_config(),
+                SnapshotRestoreLimits::new(4 << 20, 4096),
+            )
+        };
+        bytes[offset..offset + 4].copy_from_slice(&invalid.to_le_bytes());
+        assert_eq!(
+            restore(&bytes).unwrap_err(),
+            SnapshotRestoreError::InvalidHandoffState
+        );
+        bytes[offset..offset + 4].copy_from_slice(&valid.to_le_bytes());
+        restore(&bytes).unwrap().into_world().step(tick).unwrap();
+    };
+    assert!(
+        world
+            .vehicle_route_handoffs(request.vehicle)
+            .next()
+            .unwrap()
+            .rear_travel_mm
+            < slow.travel_mm[0]
+    );
+    check(&world, 3_000, 3_001);
+    let mut checked_approach = false;
+    for _ in 0..300 {
+        world.step(tick).unwrap();
+        let travel = world
+            .vehicle_route_handoffs(request.vehicle)
+            .next()
+            .unwrap()
+            .rear_travel_mm;
+        // 服务减速度 3 m/s²，从 3 m/s 降到 1 m/s 需要超过一米。
+        // 剩余不足半米时，3 m/s 虽仍在本格上限以内，已不能安全接近下一格。
+        if !checked_approach && travel < slow.travel_mm[0] && slow.travel_mm[0] - travel < 500 {
+            check(&world, 1_000, 3_000);
+            checked_approach = true;
+        }
+        if (slow.travel_mm[0]..=slow.travel_mm[1]).contains(&travel) {
+            assert!(checked_approach);
+            assert_eq!(slow.speed_mm_s, 1_000);
+            check(&world, slow.speed_mm_s, slow.speed_mm_s + 1);
+            return;
+        }
+    }
+    panic!("车辆未进入立柱旁的局部限速区间");
+}
+
+#[test]
 fn decreasing_station_brakes_before_the_post_and_releases_after_rear_clearance() {
     let (world, binding, trial) = world_with_post(0., -2.443, Backward);
     let config = driving_config();

@@ -1225,11 +1225,26 @@ impl crate::kernel::state::WorldState {
                 let verify = || {
                     let vehicle = read.vehicle_state(record.vehicle)?;
                     let revision = &self.binding.revision;
-                    self.binding.config.handoff_driving()?;
+                    let config = self.binding.config.handoff_driving()?;
                     let route = read.compiled_route(vehicle.route)?;
                     let binding = route.handoff_binding(revision)?;
                     let trial = record.trial(revision, vehicle)?;
                     let preview = binding.preview(record.source_index, &trial).ok()?;
+                    let rebuilt;
+                    let plan = if let Some(cached) = PreparedRouteHandoff::cached(
+                        &self.derived.handoff_plans,
+                        record,
+                        vehicle.route,
+                    ) {
+                        &cached.plan
+                    } else {
+                        let dt = u32::try_from(self.binding.config.fixed_delta_time_ms()).ok()?;
+                        rebuilt = preview.speed_plan(&trial, config, dt).ok()?;
+                        &rebuilt
+                    };
+                    if !plan.can_resume_at(record.rear_travel_um, vehicle.speed_mm_s) {
+                        return None;
+                    }
                     let path = preview.trajectory.as_ref()?;
                     if !path.preserves_parking(read, vehicle.handle, trial.limits.sweep) {
                         return None;
