@@ -70,7 +70,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 - [共享静态路网][doc-design-shared-static-network] — 已接受；无生效取代。定义从受检制品构建共享静态路网修订。
 - [Signal System 设计][doc-design-signal-system] — 已接受；无生效取代。定义固定时制信号、门控与车辆合规。
 - [Signalized Corridor Population][doc-design-signalized-corridor-population] — 已接受；无生效取代。定义信号化走廊人口与车辆回流。
-- [Signalized Corridor Protected Turning Profile][doc-design-signalized-corridor-protected-turning] — 已接受；无生效取代。定义信号化走廊受保护转向与清空判据。
+- [Signalized Corridor Protected Turning Profile][doc-design-signalized-corridor-protected-turning] — 已接受；无生效取代。定义信号化走廊受保护转向、跨组冲突区与清空判据。
 - [空间几何设计][doc-design-spatial-geometry] — 已接受；无生效取代。定义有界空间几何、长度绑定与位姿采样。
 - [交通观测与 Routing 接入][doc-design-traffic-observation-and-routing-integration] — 已接受；无生效取代。定义交通观测、动态成本与宿主候选路线接入。
 - [准入缓存完整重建前的保守筛选][doc-design-traffic-runtime-admission-contender-filter] — 已接受；无生效取代。定义准入缓存重建前的保守空贡献筛选。

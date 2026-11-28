@@ -7,7 +7,7 @@ revised_date = "2026-11-27"
 summary = "定义固定时制信号、门控与车辆合规。"
 scope = "Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载。"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1272"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1507"]
 related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0009", "adr-0017", "adr-0028", "architecture", "design-parking-system", "design-road-junction-model", "design-route-system", "design-signalized-corridor-protected-turning", "design-traffic-runtime-integer-geometry", "design-vehicle-following", "roadmap"]
 +++
 
@@ -231,9 +231,11 @@ Red/restrictive-yellow denial 是 hard entry denial。极端不可停车输入�
 仅在黄灯生效**：红灯仍按现行法规解释及独立禁令求值（`CnCircularRightTurn`
 红灯 Permissive 等既有解释不变），不增加任何黄转红宽限。黄转红后该门按
 现行策略仍为 `DenyAndStop` 且车辆拍初不可停时，按「红转边界不可停」具名
-投影归因（integer-geometry 例外清单）。放行车辆的清空由 authoring 的
-`t_entry + T_clear ≤ Y + R` 配时预算承担（全红提供清空时间，不提供跨线
-许可）；该判据含黄灯期入场时间，早于只有 `T_clear ≤ Y + R` 的旧关系。
+投影归因（integer-geometry 例外清单）。放行车辆与下一组车辆之间的空间安全由
+authoring 承担，二选一：配时预算满足 `t_entry + T_clear ≤ Y + R`（全红提供清空
+时间，不提供跨线许可；该判据含黄灯期入场时间），或以 ConflictZone 约束跨组冲突
+path，由 Traffic Runtime 的冲突仲裁让下一组车辆在 Gate 前等待（受保护转向走廊
+§7.4）。
 本决定在停止目标查询、冲突候选生成、实际 traversal、事件与校验三处消费
 点一致消费；纯 aspect→decision 表保留为输入件。新鲜摆放（spawn/replace）
 不得依赖困境区豁免通过停止安全准入，见 `traffic-runtime-vehicle-placement.md`。
@@ -248,8 +250,8 @@ Red/restrictive-yellow denial 是 hard entry denial。极端不可停车输入�
 自恢复之拍起重新受停止约束与保持义务约束。黄转红且停止位置不变时义务延续；转绿
 解除 SignalStop 后义务随之释放，其余纵向与资源约束照常生效；已合法完成跨门的车辆
 不追溯。保持可停不要求黄灯一亮即固定减速；产品若要求更早、更平顺地进入制动，属
-驾驶策略的另行要求。保持义务不改变上款 authoring 的清空配时责任：确实不可停而获
-许可的车辆仍须满足 `t_entry + T_clear ≤ Y + R`。
+驾驶策略的另行要求。保持义务不改变上款 authoring 的空间安全责任：确实不可停而获
+许可的车辆，仍须由配时预算或跨组冲突区之一保证与下一组车辆的安全。
 
 Denied Gate 允许车辆 front bumper 精确到达 StopLine，但禁止 transition。信号停车不改变 vehicle status；车辆保持 Active，速度可以为零。green 后只移除 signal constraint，车辆通过既有 controller/leader pipeline 自然恢复，不增加 startup delay。
 
