@@ -104,7 +104,8 @@ batch_columns! {
     desired: u32 = 0, min_gap: f32 = 0.0,
     headway: f32 = 0.0, accel: f32 = 1.0, comfort: f32 = 1.0, emergency: f32 = 1.0,
     leader: f32 = f32::INFINITY, has_leader: bool = false,
-    leader_speed: f32 = 0.0, safe_room: f32 = f32::INFINITY, safe_quantize: bool = false,
+    leader_speed: f32 = 0.0, safe_room: f32 = f32::INFINITY,
+    feasible_follower_room_um: u64 = laneflow_motion_kernel::NO_FOLLOWER_ROOM,
     stop: f32 = f32::INFINITY,
     route_end: f32 = f32::INFINITY,
     stop_mm: u32 = laneflow_motion_kernel::NO_HOLD_TARGET,
@@ -135,7 +136,7 @@ impl Batch {
         self.leader[row] = leader_gap_m(basis.leader_gap).unwrap_or(f32::INFINITY);
         self.leader_speed[row] = si_speed(basis.leader_speed_mm_s);
         self.safe_room[row] = basis.safe_room_m();
-        self.safe_quantize[row] = basis.safe_quantize();
+        self.feasible_follower_room_um[row] = basis.feasible_follower_room_um();
         self.route_end[row] = finite_meters(basis.route_end).unwrap_or(f32::INFINITY);
         self.route_end_mm[row] = super::hold_target_mm(Some(basis.route_end));
         self.envelope[row] = basis.envelope_m;
@@ -394,7 +395,7 @@ fn numerical(
         has_leader: &batch.has_leader[range.clone()],
         leader_speed_m_s: &batch.leader_speed[range.clone()],
         safe_room_m: &batch.safe_room[range.clone()],
-        safe_quantize: &batch.safe_quantize[range.clone()],
+        feasible_follower_room_um: &batch.feasible_follower_room_um[range.clone()],
         min_gap_m: &batch.min_gap[range.clone()],
         time_headway: &batch.headway[range.clone()],
         max_accel: &batch.accel[range.clone()],

@@ -1,8 +1,8 @@
 use super::projection::{ROOT_SHRINK_HARD, ROOT_SHRINK_SOFT};
 use super::{
     BoundaryInput, BoundaryOutput, Columns, EdgeInput, EdgeOutput, EdgeStats, Input, LimitInput,
-    LimitOutput, Phase, SAFE_SPEED_SHRINK, Stats, finish_held, hold_for_row, motion_values_valid,
-    quantize_row, raw_valid, stop_solve_participates,
+    LimitOutput, NO_FOLLOWER_ROOM, Phase, SAFE_SPEED_SHRINK, Stats, finish_held, hold_for_row,
+    motion_values_valid, quantize_row, raw_valid, stop_solve_participates,
 };
 use std::arch::x86_64::*;
 
@@ -109,7 +109,16 @@ unsafe fn finish4<const TRACK: bool>(
                 exhausted_bits & (1 << lane) != 0 && input.exhausted_speed_cap_mm_s[row] == 0;
             let convertible = travel_convertible
                 && (forced_zero || (speed[lane] >= 0.0 && speed[lane] <= f64::from(u32::MAX)));
-            if input.enabled[row] && numeric_valid && convertible && held[lane].is_none() {
+            // 实际耗尽的过渡通道若同时保持跟车界，交给共享完成原语核验最终速度。
+            let check_follower_cap = exhausted_bits & (1 << lane) != 0
+                && input.exhausted_cap_dominates[row]
+                && input.feasible_follower_room_um[row] != NO_FOLLOWER_ROOM;
+            if input.enabled[row]
+                && numeric_valid
+                && convertible
+                && held[lane].is_none()
+                && !check_follower_cap
+            {
                 -1
             } else {
                 0
@@ -859,7 +868,7 @@ unsafe fn quantize_direct2<const TRACK: bool>(
             );
             // 跟车安全量化路径向零取整（与标量 quantize_row 同式）。
             for lane in 0..4 {
-                if input.safe_quantize[start + group * 4 + lane] {
+                if input.feasible_follower_room_um[start + group * 4 + lane] != NO_FOLLOWER_ROOM {
                     um[lane] = um_floor[lane];
                     speed[lane] = speed_floor[lane];
                 }
@@ -934,7 +943,7 @@ unsafe fn quantize_direct512<const TRACK: bool>(
             );
             // 跟车安全量化路径向零取整（与标量 quantize_row 同式）。
             for lane in 0..8 {
-                if input.safe_quantize[start + group * 8 + lane] {
+                if input.feasible_follower_room_um[start + group * 8 + lane] != NO_FOLLOWER_ROOM {
                     um[lane] = um_floor[lane];
                     speed[lane] = speed_floor[lane];
                 }
@@ -1048,7 +1057,7 @@ pub(super) unsafe fn avx2<const TRACK: bool>(
         // 跟车安全量化路径向零取整：逐行用标量同一定义（quantize_row）。
         for lane in 0..4 {
             let row = start + lane;
-            if input.safe_quantize[row] {
+            if input.feasible_follower_room_um[row] != NO_FOLLOWER_ROOM {
                 (um[lane], speed[lane]) =
                     quantize_row(true, floats.travel_m[row], floats.proposal_speed_m_s[row]);
             }
@@ -1153,7 +1162,7 @@ pub(super) unsafe fn avx512<const TRACK: bool>(
         // 跟车安全量化路径向零取整：逐行用标量同一定义（quantize_row）。
         for lane in 0..8 {
             let row = start + lane;
-            if input.safe_quantize[row] {
+            if input.feasible_follower_room_um[row] != NO_FOLLOWER_ROOM {
                 (um[lane], speed[lane]) =
                     quantize_row(true, floats.travel_m[row], floats.proposal_speed_m_s[row]);
             }

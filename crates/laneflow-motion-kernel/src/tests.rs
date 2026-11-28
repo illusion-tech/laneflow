@@ -16,7 +16,7 @@ struct Fixture {
     has_leader: [bool; N],
     leader_speed: [f32; N],
     safe_room: [f32; N],
-    safe_quantize: [bool; N],
+    feasible_follower_room_um: [u64; N],
     min_gap: [f32; N],
     headway: [f32; N],
     accel: [f32; N],
@@ -48,7 +48,7 @@ impl Fixture {
             has_leader: [false; N],
             leader_speed: [0.0; N],
             safe_room: [f32::INFINITY; N],
-            safe_quantize: [false; N],
+            feasible_follower_room_um: [NO_FOLLOWER_ROOM; N],
             min_gap: [2.0; N],
             headway: [1.5; N],
             accel: [2.0; N],
@@ -92,7 +92,9 @@ impl Fixture {
                 2 => 0.000_9,
                 _ => (random % 40_000_000) as f32 / 1_000_000.0,
             };
-            f.safe_quantize[row] = row % 2 == 1;
+            if row % 2 == 1 {
+                f.feasible_follower_room_um[row] = stop_distance_um(f.speed[row], f.emergency[row]);
+            }
             // 整数几何 §5.1：整数目标距离与米值同源；近处目标随机穿插，
             // 让保持改写在三后端经同一标量完成原语。
             f.stop_mm[row] = match row % 7 {
@@ -149,7 +151,7 @@ impl Fixture {
             has_leader: &self.has_leader[..n],
             leader_speed_m_s: &self.leader_speed[..n],
             safe_room_m: &self.safe_room[..n],
-            safe_quantize: &self.safe_quantize[..n],
+            feasible_follower_room_um: &self.feasible_follower_room_um[..n],
             min_gap_m: &self.min_gap[..n],
             time_headway: &self.headway[..n],
             max_accel: &self.accel[..n],
@@ -259,7 +261,7 @@ fn zero_safe_speed_stop_branch_stays_inside_the_follower_room() {
         f.leader[row] = 2.002;
         f.leader_speed[row] = 0.0;
         f.safe_room[row] = room;
-        f.safe_quantize[row] = true;
+        f.feasible_follower_room_um[row] = 844;
         f.min_gap[row] = 2.0;
         f.headway[row] = 1.5;
         f.accel[row] = 1.5;
@@ -288,6 +290,117 @@ fn zero_safe_speed_stop_branch_stays_inside_the_follower_room() {
             assert_eq!(result.meters[row], travel, "geometry clip not needed");
         }
     }
+}
+
+#[test]
+fn quantized_follower_at_emergency_floor_keeps_next_tick_feasible() {
+    let mut f = Fixture::new(1);
+    for (speed, dt, carry, room, expected_speed, expected_travel) in [
+        (32_004, 1.0, 998, 128_032_002_u64, 28_004, 30_004_000_u64),
+        (100, 0.1, 750, 1_250, 0, 1_250),
+    ] {
+        f.enabled.fill(true);
+        f.has_proposal.fill(false);
+        f.speed.fill(speed);
+        f.desired.fill(speed);
+        f.progress.fill(0);
+        f.carry.fill(carry);
+        f.has_leader.fill(true);
+        // 已提交前后杠间隙含 2 m 最小间距及 1 mm 归零容差。
+        let hard_room_mm = ((room + u64::from(carry)) / 1_000 + 1) as u32;
+        f.leader.fill((hard_room_mm + 2_000) as f32 / 1_000.0);
+        f.leader_speed.fill(0.0);
+        f.safe_room
+            .fill((room as f64 * f64::from(SAFE_SPEED_SHRINK) / 1e6) as f32);
+        f.feasible_follower_room_um.fill(room);
+        f.stop.fill(f32::INFINITY);
+        f.end.fill(f32::INFINITY);
+        f.stop_mm.fill(NO_HOLD_TARGET);
+        f.end_mm.fill(NO_HOLD_TARGET);
+        f.envelope.fill(f32::INFINITY);
+        f.room.fill(hard_room_mm);
+        f.emergency.fill(4.0);
+        f.comfort.fill(2.0);
+        f.limit.fill(u32::MAX);
+        assert_eq!(stop_distance_um(speed, 4.0), room);
+        for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+            let Some(kernel) = Kernel::for_backend(backend) else {
+                continue;
+            };
+            let mut result = Results::new();
+            kernel
+                .run(&f.input(17), &mut result.output(17), dt)
+                .unwrap();
+            for row in 0..17 {
+                assert!(result.valid[row]);
+                let travel = u64::from(result.travel[row]) * 1_000 + u64::from(result.carry[row])
+                    - u64::from(carry);
+                assert_eq!(
+                    (result.speed[row], travel),
+                    (expected_speed, expected_travel),
+                    "{backend:?}"
+                );
+                assert!(travel + stop_distance_um(result.speed[row], 4.0) <= room);
+            }
+        }
+    }
+}
+
+#[test]
+fn transition_exhaustion_preserves_the_following_bound_after_integer_travel() {
+    let mut f = Fixture::new(1);
+    let cases = [
+        // 从 1 m/s 降速，拍初紧急停车需 125 mm，实际走完 80 mm 后只够 600 mm/s。
+        (125_000, 80, 600, true),
+        (200_000, 80, 800, true),
+        (NO_FOLLOWER_ROOM, 80, 800, true),
+        // 未走完过渡距离时仍提交普通候选。
+        (125_000, 81, 600, false),
+        // 调用方传入了拍初不可行的有限界，不能凭它建立跟车保持义务。
+        (1, 80, 800, true),
+    ];
+    for row in 0..17 {
+        let (follower_room, hard_room, _, _) = cases[row % cases.len()];
+        f.enabled[row] = true;
+        f.has_proposal[row] = true;
+        f.proposal_speed[row] = 0.0;
+        f.speed[row] = 1_000;
+        f.carry[row] = 0;
+        f.has_leader[row] = follower_room != NO_FOLLOWER_ROOM;
+        f.leader[row] = 10.0;
+        f.safe_room[row] = follower_room as f32 / 1_000_000.0;
+        f.feasible_follower_room_um[row] = follower_room;
+        f.stop[row] = f32::INFINITY;
+        f.end[row] = f32::INFINITY;
+        f.stop_mm[row] = NO_HOLD_TARGET;
+        f.end_mm[row] = NO_HOLD_TARGET;
+        f.envelope[row] = f32::INFINITY;
+        f.emergency[row] = 4.0;
+        f.comfort[row] = 2.0;
+        f.room[row] = hard_room;
+        f.cap_dominates[row] = true;
+        f.stop_cap[row] = 800;
+        f.limit[row] = u32::MAX;
+    }
+    for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        let Some(kernel) = Kernel::for_backend(backend) else {
+            continue;
+        };
+        let mut result = Results::new();
+        kernel
+            .run_direct(&f.input(17), &mut result.direct_output(17), 0.1)
+            .unwrap();
+        for row in 0..17 {
+            let (_, _, speed, exhausted) = cases[row % cases.len()];
+            assert!(result.valid[row]);
+            assert_eq!(
+                (result.speed[row], result.exhausted[row]),
+                (speed, exhausted),
+                "{backend:?} row {row}"
+            );
+        }
+    }
+    assert_eq!(follower_exhausted_speed(50, 0, 4.0, 0, 999, 0), 0);
 }
 
 #[derive(Debug, PartialEq)]
@@ -1083,7 +1196,7 @@ fn approach(backend: Backend, case: &Approach) -> (u32, u32) {
             f.leader[row] = f32::INFINITY;
             f.has_leader[row] = false;
             f.safe_room[row] = f32::INFINITY;
-            f.safe_quantize[row] = false;
+            f.feasible_follower_room_um[row] = NO_FOLLOWER_ROOM;
             f.accel[row] = case.accel;
             f.comfort[row] = case.comfort;
             f.emergency[row] = case.emergency;
@@ -1238,7 +1351,7 @@ fn hold_arrival_overrides_dominant_transition_cap() {
                 f.leader[row] = f32::INFINITY;
                 f.has_leader[row] = false;
                 f.safe_room[row] = f32::INFINITY;
-                f.safe_quantize[row] = false;
+                f.feasible_follower_room_um[row] = NO_FOLLOWER_ROOM;
                 f.accel[row] = 2.0;
                 f.comfort[row] = 2.0;
                 f.emergency[row] = 4.0;

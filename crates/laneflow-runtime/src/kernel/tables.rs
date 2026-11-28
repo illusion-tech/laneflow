@@ -3953,7 +3953,7 @@ pub(crate) mod compile_route_tests {
                 .copied()
                 .find(|edge| *edge != transition)
                 .unwrap();
-            for direct in [true, false] {
+            for (direct, close_leader) in [(true, false), (false, false), (true, true)] {
                 let rear_route_edges = if direct {
                     vec![e0, transition, e2, int_edge, exit, e5]
                 } else {
@@ -4032,7 +4032,9 @@ pub(crate) mod compile_route_tests {
                 );
                 let approach = if direct { e0 } else { e4 };
                 let length = world.traffic().lane_lengths_millimetres()[approach.index()];
-                let (room, speed, expected_speed) = if direct {
+                let (room, speed, expected_speed) = if close_leader {
+                    (50, 1_000, 328)
+                } else if direct {
                     (20, 1_000, 550)
                 } else {
                     (100, 10_000, 9_550)
@@ -4040,6 +4042,34 @@ pub(crate) mod compile_route_tests {
                 let mut before = world.vehicle(rear).unwrap();
                 before.progress_mm = length - room;
                 before.speed_mm_s = speed;
+                if close_leader {
+                    // 将持有预约的前车车尾放在入口后 min_gap + 7 mm。
+                    // 后车拍初可用 56 mm；走完 50 mm 后余 6 mm。紧急减速度
+                    // 9 m/s² 下，328 mm/s 能停住，329 mm/s 不能。
+                    before.carry_um = 0;
+                    let mut owner = world.vehicle(changer).unwrap();
+                    let min_gap = world
+                        .traffic()
+                        .relations()
+                        .vehicle_profile(before.profile)
+                        .unwrap()
+                        .min_gap_mm();
+                    let front = min_gap + 7 + owner.length_mm;
+                    let transition_len =
+                        world.traffic().lane_lengths_millimetres()[transition.index()];
+                    (owner.route_edge_index, owner.progress_mm) = if front < transition_len {
+                        (1, front)
+                    } else {
+                        (2, front - transition_len)
+                    };
+                    owner.speed_mm_s = 0;
+                    world
+                        .state
+                        .committed
+                        .vehicles
+                        .slot_mut(changer.index() as usize)
+                        .state = Some(owner);
+                }
                 world
                     .state
                     .committed
@@ -4049,6 +4079,18 @@ pub(crate) mod compile_route_tests {
                 world.state.rebuild_occupancy_index().unwrap();
 
                 let view = world.state.read_view();
+                if close_leader {
+                    let next = view
+                        .advance_active_vehicle_with_waiting_stop(before, 0.1, None, None)
+                        .unwrap();
+                    assert_eq!(
+                        (next.progress_mm, next.carry_um, next.speed_mm_s),
+                        (length, 0, expected_speed)
+                    );
+                    world.step(crate::TickInput::new(100)).unwrap();
+                    assert_eq!(world.vehicle(rear).unwrap(), next);
+                    continue;
+                }
                 // #1272：到位拍速度按耗尽决策表取紧急衰减上界（emergency 9.0
                 // m/s²），不再一拍清零；位置仍精确停在停止距离处。
                 let stop_speed = if direct { 100 } else { 9_100 };

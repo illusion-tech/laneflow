@@ -553,10 +553,11 @@ impl MotionInputs {
         self.safe_room_um().map_or(f32::INFINITY, safe_room_meters)
     }
 
-    /// 整数几何 §5 跟车安全量化：本拍开始时有前车且跟车可行。
-    fn safe_quantize(&self) -> bool {
+    /// 整数几何 §5 跟车安全量化与已提交速度共同使用的停车界。
+    fn feasible_follower_room_um(&self) -> u64 {
         self.safe_room_um()
-            .is_some_and(|room| follower_feasible(self.speed_mm_s, self.emergency_decel, room))
+            .filter(|&room| follower_feasible(self.speed_mm_s, self.emergency_decel, room))
+            .unwrap_or(laneflow_motion_kernel::NO_FOLLOWER_ROOM)
     }
 
     fn raw_proposal(&self, delta_s: f32) -> Option<(f32, f32)> {
@@ -4813,7 +4814,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
 
         let hard_room = limits.hard_room_mm;
-        let safe_quantize = inputs.safe_quantize();
+        let follower_room = inputs.feasible_follower_room_um();
+        let safe_quantize = follower_room != laneflow_motion_kernel::NO_FOLLOWER_ROOM;
         let exhausted_speed = |regular: Option<u32>, arrives: bool| {
             // 整数几何 §5.1：保持义务下的到线零速，优先于其余正常行。
             if arrives {
@@ -4824,7 +4826,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 // F3：过渡预约的实际耗尽由舒适衰减主导（合同「耗尽拍由
                 // 该上界主导」）——不用候选的紧急下界 min 拉低（r_p5 钉版：
                 // 550 而非 100）。候选的紧急下界只在接近相生效。
-                cap
+                laneflow_motion_kernel::follower_exhausted_speed(
+                    cap.min(inputs.current_limit_mm_s),
+                    inputs.speed_mm_s,
+                    inputs.emergency_decel,
+                    follower_room,
+                    inputs.carry_um,
+                    hard_room,
+                )
             } else {
                 cap.min(regular.unwrap_or(u32::MAX))
             }
@@ -4851,8 +4860,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let regular_um = quantize_um(safe_quantize, travel_m)?;
         let regular_speed = quantize_mm(safe_quantize, next_speed_m);
         // 整数几何 §5.1：候选终速取耗尽与终态清零之前的量化值。
-        let held = regular_speed
-            .and_then(|speed| scalar_hold(&inputs, limits.stop, delta_s, speed, regular_um));
+        let held = regular_speed.and_then(|speed| {
+            scalar_hold(
+                &inputs,
+                limits.stop,
+                follower_room,
+                delta_s,
+                speed,
+                regular_um,
+            )
+        });
         let (carry_um, travel_um, commit_speed, arrives) = match held {
             Some(commit) => (
                 commit.carry_um,
@@ -6085,6 +6102,7 @@ fn hold_target_mm(distance: Option<BoundedDistance>) -> u32 {
 fn scalar_hold(
     inputs: &MotionInputs,
     stop: Option<BoundedDistance>,
+    follower_room: u64,
     delta_s: f32,
     regular_speed_mm_s: u32,
     regular_travel_um: u64,
@@ -6093,6 +6111,7 @@ fn scalar_hold(
         &laneflow_motion_kernel::HoldState {
             speed_mm_s: inputs.speed_mm_s,
             carry_um: inputs.carry_um,
+            feasible_follower_room_um: follower_room,
             comfort_decel: inputs.comfort_decel,
             emergency_decel: inputs.emergency_decel,
             delta_ms: laneflow_motion_kernel::delta_ms(delta_s),
@@ -6251,11 +6270,11 @@ pub(crate) fn follower_safe_room_um(gap_mm: i64, min_gap_mm: u32, carry_um: u16)
     raw_um.saturating_sub(u64::from(MINIMUM_GAP_TOLERANCE_MM) * 1_000 + u64::from(carry_um))
 }
 
-/// vehicle-following §10.2 跟车可行：`v²/(2·b_f) ≤ s_a`，`f64` 比较。
+/// vehicle-following §10.2 跟车可行：按已提交速度与档位的精确值比较停车界。
 pub(crate) fn follower_feasible(speed_mm_s: u32, emergency: f32, room_um: u64) -> bool {
-    let v = f64::from(speed_mm_s) / 1_000.0;
-    let b = f64::from(emergency);
-    b.is_finite() && b > 0.0 && v * v / (2.0 * b) <= room_um as f64 / 1_000_000.0
+    emergency.is_finite()
+        && emergency > 0.0
+        && laneflow_motion_kernel::stop_distance_um(speed_mm_s, emergency) <= room_um
 }
 
 /// 整数停车界转为运动内核读取的米值，按 `SAFE_SPEED_SHRINK` 向安全方向收缩。
@@ -7772,6 +7791,8 @@ mod preview {
         ));
         assert!(follower_feasible(0, 6.0, 0));
         assert!(!follower_feasible(1, 6.0, 0));
+        assert!(follower_feasible(100, 4.0, 1_250));
+        assert!(!follower_feasible(100, 4.0, 1_249));
         assert!(!follower_feasible(1_000, 0.0, u64::MAX));
     }
 

@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-integer-geometry"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-27"
+revised_date = "2026-11-28"
 summary = "定义整数毫米运动、速度与停止约束。"
 scope = "TrafficWorld 已提交一维几何与速度、WorldConfig 步长、 laneflow-static-network 热列、LFCA 长度/速度字段、compiler Typed AST / HIR / MIR / LIR 交通一维存储、公开 Canonical*View、compiler 边长派生、 Spatial 采样钉死端点"
 applicability = "#applicability"
@@ -320,6 +320,11 @@ z + Φ_{b*}(q) ≤ R,        R = 1000·D − C_eff
 整数可行域内部出发不会离开：同一持续目标、同一保持档位、前提不变期间，至多
 发生一次该档的差带余数清除。车辆先只能紧急停车、其后恢复舒适可停时，可能为
 舒适档再清除一次；次数上界来自证明，不设历史标记。
+
+拍初满足跟车可行条件时，按 `vehicle-following.md` §10.2 的拍初保险杠间隙、最小间隙、容差和有效余数求出跟车停车界。
+同一对 `z`、`q` 还须满足 `z + Φ_{b_e}(q)` 不超过这条界。跟车使用紧急档，和本拍负有保持义务的
+停止目标一起约束提交。只有到达实际停止目标才报告到位。若耗尽源按本表单独确定终速，则在实际提交的
+毫米位移和清零后的余数上复核跟车停车界，取耗尽上界以内仍可紧急停住的最高整数速度。
 
 **候选选择**。常规候选（第 3–7 步，含跟车安全量化）满足提交判据时原样保留。
 不满足时，在下列收紧候选中选终速最高者，同速取行程最大者。搜索上界 `q_上` 是
