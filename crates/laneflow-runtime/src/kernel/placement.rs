@@ -1,5 +1,4 @@
-//! 新生成的运动安全准入。只在 `spawn_vehicle` 与 `replace_completed_vehicle`
-//! 提交前使用；快照恢复和修订切换不调用。
+//! 生成与替换车辆的运动安全准入。停车驶出复用其中的横移保护区间及制动距离检查。
 
 use std::cell::Cell;
 use std::cmp::Reverse;
@@ -520,30 +519,15 @@ impl crate::kernel::state::WorldState {
         let cursor = usize::try_from(input.route_edge_index()).expect("route index fits usize");
         if !self.committed.handoffs.is_empty() {
             let route = self.compiled_route(input.route()).expect("validated route");
-            if self.placement_overlaps_handoff(
+            if self.placement_conflicts_with_handoff(
                 route,
                 cursor,
                 input.progress_mm(),
                 vehicle_length_mm,
+                input.profile(),
+                input.initial_speed_mm_s(),
             ) {
                 return Err(FreshAdmissionFailure::StopConstraint);
-            }
-            if let Some(room_mm) = super::handoff::execution::reservation_distance(
-                self.committed.handoffs.iter(),
-                route,
-                None,
-                cursor,
-                input.progress_mm(),
-            ) {
-                let required = super::handoff::braking::service_stop_distance_um(
-                    input.initial_speed_mm_s(),
-                    self.binding.config.fixed_delta_time_ms(),
-                    profile.comfort_decel(),
-                    profile.min_gap_mm(),
-                );
-                if required.is_none_or(|um| um > u64::from(room_mm) * 1_000) {
-                    return Err(FreshAdmissionFailure::StopConstraint);
-                }
             }
         }
         if let Some(distance_mm) = self.restrictive_stop_mm(
@@ -578,13 +562,15 @@ impl crate::kernel::state::WorldState {
         self.admit_direct_followers(input, vehicle_length_mm, delta_s)
     }
 
-    /// 生成、替换与出库均不得向其他车辆仍持有的保护区间内插入车身。
-    pub(super) fn placement_overlaps_handoff(
+    /// 生成、替换与驶出都须证明车身未占用横移保护，且能在前方保护入口前留足停车间距。
+    pub(super) fn placement_conflicts_with_handoff(
         &self,
         route: &super::tables::CompiledRoute,
         cursor: usize,
         front: u32,
         length: u32,
+        profile: VehicleProfileOrdinal,
+        speed_mm_s: u32,
     ) -> bool {
         if self.committed.handoffs.is_empty() {
             return false;
@@ -606,7 +592,35 @@ impl crate::kernel::state::WorldState {
                 });
             },
         );
-        walked.is_none() || overlaps
+        if walked.is_none() || overlaps {
+            return true;
+        }
+        let Some(room_mm) = super::handoff::execution::reservation_distance(
+            self.committed.handoffs.iter(),
+            route,
+            None,
+            cursor,
+            front,
+        ) else {
+            return false;
+        };
+        let Some(profile) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(profile)
+        else {
+            return true;
+        };
+        let required = super::handoff::braking::service_stop_distance_um(
+            speed_mm_s,
+            self.binding.config.fixed_delta_time_ms(),
+            profile.comfort_decel(),
+            profile.min_gap_mm(),
+        );
+        // 即使车型允许零间距，前杠触及入口也已经占用该毫米。
+        room_mm == 0 || required.is_none_or(|um| um > u64::from(room_mm) * 1_000)
     }
 
     /// 索引脏时只在这一批的第一次生成补齐，后面的车走已经建好的树。

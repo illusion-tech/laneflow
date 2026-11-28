@@ -448,6 +448,8 @@ exit 或 virtual selector，speed/carry/acceleration 均为零。提交前必须
 4. 不借用当前 SignalStop、ParkingStop、Waiting/Conflict constraint 来放宽 gap，也不在
    leave 命令中修改 follower、tick 或事件。
 
+若已有车辆持有横移预约，驶出车辆还要满足普通放车使用的保护区准入条件。沿驶出路线从静止前杠到前方保护区入口的距离须达到该车型的最小间距。间距为 2,500 毫米时，2,499 毫米须保留原泊位，恰有 2,500 毫米时此项检查通过。前杠触及保护区入口时视为占用。下游保护区为半开区间，驶出车辆的车尾恰在终点时已清空该区间。
+
 离场的 follower 查询复用每世界 `DerivedIndexes.occupancy`，构建缓冲归
 `TickWorkspace`。索引只在成功重建后绑定 `(WorldGeneration,
 ObservationStateSequence)`；重建开始先清除来源标记，失败不能留下可复用标记。

@@ -123,10 +123,17 @@ fn network(
         ));
         for (space, lane, station) in [
             ("space", 0, 348.5),
+            ("source-exit-near", 0, 79.039),
+            ("source-exit-short", 0, 77.540),
+            ("source-exit-exact", 0, 77.539),
+            ("source-exit-touch", 0, 80.039),
+            ("source-exit-one-mm", 0, 80.038),
             ("target-skipped", 1, 100.),
             ("target-end", 1, 113.75),
             ("target-near", 1, 113.8),
             ("target-far", 1, 135.),
+            ("target-exit-tail-inside", 1, 125.363),
+            ("target-exit-tail-clear", 1, 125.364),
         ] {
             let anchor = ParkingLaneAnchor::try_new(
                 LaneEdgeReference::local(names[lane]).unwrap(),
@@ -147,14 +154,16 @@ fn network(
         add(D::ParticipantClass(
             ParticipantClassInput::try_new("motor").unwrap(),
         ));
-        for (key, length, wheelbase, rear_overhang) in
-            [("car", 4.5, 2.65, 0.75), ("long", 12., 6., 2.)]
-        {
+        for (key, length, wheelbase, rear_overhang, gap) in [
+            ("car", 4.5, 2.65, 0.75, 2.5),
+            ("long", 12., 6., 2., 2.5),
+            ("zero-gap", 4.5, 2.65, 0.75, 0.),
+        ] {
             add(D::VehicleProfile(
                 VehicleProfileInput::try_new(
                     key,
                     ParticipantClassReference::local("motor").unwrap(),
-                    IidmVehicleProfileInput::try_new(length, 13.9, 2.5, 1.2, 2., 4.5, 9.).unwrap(),
+                    IidmVehicleProfileInput::try_new(length, 13.9, gap, 1.2, 2., 4.5, 9.).unwrap(),
                     RoadVehicleGeometryInput::RigidTwoAxle(RigidTwoAxleGeometryInput {
                         wheelbase_m: wheelbase,
                         track_width_m: 1.6,

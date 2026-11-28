@@ -1,5 +1,8 @@
 use super::{Scene, TICK};
-use laneflow_runtime::{ParkingError, ReserveParkingTarget};
+use laneflow_runtime::{
+    LeaveParkingTarget, ParkedVehicleSpawnInput, ParkingError, ParkingTarget, ReserveParkingTarget,
+    RouteRegisterInput, encode_lfrs,
+};
 
 #[test]
 fn reserved_source_entry_keeps_priority_over_handoff() {
@@ -214,4 +217,126 @@ fn terminal_tick_with_a_near_parking_entry_stops_once_at_that_entry() {
             .parking_arrivals()
             .is_empty()
     );
+}
+
+#[test]
+fn parking_departure_leaves_the_minimum_stopping_gap_before_a_handoff() {
+    for (exit_mm, gap_mm, profile_key, can_leave) in [
+        (79_039, 1_000, "car", false),
+        (77_540, 2_499, "car", false),
+        (77_539, 2_500, "car", true),
+        (80_039, 0, "zero-gap", false),
+        (80_038, 1, "zero-gap", true),
+    ] {
+        let mut scene = Scene::new(1);
+        let change = scene.changer(0, "car", 83_750, 10_000);
+        let request = scene.request(&change);
+        scene
+            .world
+            .step_with_route_handoffs(TICK, &[request])
+            .unwrap();
+        let bytes = encode_lfrs(&scene.world.capture_snapshot().unwrap());
+        let root = crate::snapshot_wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+        let handoff = root.vehicles().get(0).handoffs().get(0);
+        let source = handoff
+            .protections()
+            .iter()
+            .find(|p| p.role() == crate::snapshot_wire::HandoffProtectionRole::Source)
+            .unwrap();
+        assert_eq!(super::CUT + source.start_mm() - exit_mm, gap_mm);
+        let route = scene
+            .world
+            .register_route(RouteRegisterInput::new(scene.lanes[0].clone()))
+            .unwrap();
+        let profile = crate::conflict_profile(&scene.world.revision(), profile_key);
+        let space = scene.space_at(0, exit_mm);
+        let parked = scene
+            .world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(profile, route, 1, exit_mm - super::CUT),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .unwrap()
+            .vehicle;
+        let before = encode_lfrs(&scene.world.capture_snapshot().unwrap());
+        let leave = scene.world.leave_parking(
+            parked,
+            LeaveParkingTarget::ExplicitSpace {
+                space,
+                route,
+                exit_route_occurrence: 1,
+            },
+        );
+        if !can_leave {
+            assert_eq!(leave, Err(ParkingError::HandoffConflict));
+            assert_eq!(
+                before,
+                encode_lfrs(&scene.world.capture_snapshot().unwrap())
+            );
+        } else {
+            leave.unwrap();
+            assert_eq!(scene.front(parked), exit_mm);
+        }
+        for _ in 0..60 {
+            scene.world.step(TICK).unwrap();
+            if !scene.held(change.vehicle) {
+                break;
+            }
+        }
+        assert!(!scene.held(change.vehicle));
+    }
+}
+
+#[test]
+fn a_parked_vehicle_can_leave_with_its_tail_at_the_end_of_half_open_downstream_protection() {
+    let mut scene = Scene::new(1);
+    let change = scene.changer(0, "car", 83_750, 10_000);
+    let request = scene.request(&change);
+    scene
+        .world
+        .step_with_route_handoffs(TICK, &[request])
+        .unwrap();
+    let bytes = encode_lfrs(&scene.world.capture_snapshot().unwrap());
+    let root = crate::snapshot_wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+    let held = root.vehicles().get(0).handoffs().get(0);
+    let downstream = held
+        .protections()
+        .iter()
+        .find(|p| p.role() == crate::snapshot_wire::HandoffProtectionRole::Downstream)
+        .unwrap();
+    let car = scene.world.vehicle(change.vehicle).unwrap();
+    let first_clear = super::CUT + downstream.end_mm() + car.length_mm();
+    let route = scene
+        .world
+        .register_route(RouteRegisterInput::new(scene.lanes[1].clone()))
+        .unwrap();
+    for exit in [first_clear - 1, first_clear] {
+        let space = scene.space_at(1, exit);
+        let parked = scene
+            .world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(car.profile(), route, 1, exit - super::CUT),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .unwrap()
+            .vehicle;
+        let leave = scene.world.leave_parking(
+            parked,
+            LeaveParkingTarget::ExplicitSpace {
+                space,
+                route,
+                exit_route_occurrence: 1,
+            },
+        );
+        if exit < first_clear {
+            assert_eq!(leave, Err(ParkingError::HandoffConflict));
+        } else {
+            leave.unwrap();
+            assert_eq!(
+                scene.front(parked) - car.length_mm(),
+                super::CUT + downstream.end_mm()
+            );
+        }
+    }
+    scene.world.step(TICK).unwrap();
 }

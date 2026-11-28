@@ -1608,11 +1608,13 @@ impl crate::kernel::state::WorldState {
                 exit_progress_mm,
                 state.length_mm,
             ) != Some(0))
-            || self.placement_overlaps_handoff(
+            || self.placement_conflicts_with_handoff(
                 compiled,
                 occurrence,
                 exit_progress_mm,
                 state.length_mm,
+                state.profile,
+                0,
             )
         {
             return Err(ParkingError::HandoffConflict);

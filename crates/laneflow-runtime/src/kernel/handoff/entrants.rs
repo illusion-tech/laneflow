@@ -302,10 +302,11 @@ pub(super) fn check_other_entrants(
         }
         if side_blockers[1].is_none() {
             for p in protections.iter().filter(|p| p.role == 4) {
+                // 下游保护为非空半开区间；站位查询的上下界均包含在内。
                 if let Some(blocker) = approach.at(
                     StationAddress {
                         edge: p.edge,
-                        progress_mm: [p.start_mm, p.end_mm],
+                        progress_mm: [p.start_mm, p.end_mm - 1],
                     },
                     &mut work,
                 )? {
