@@ -192,7 +192,7 @@ pub(super) struct Scene {
 pub(super) struct Change {
     pub(super) vehicle: VehicleHandle,
     route: RouteHandle,
-    binding: BoundRouteHandoff,
+    pub(super) binding: BoundRouteHandoff,
     profile: VehicleProfileOrdinal,
     front_over_axle: u32,
     span: u64,
@@ -365,18 +365,26 @@ impl Scene {
         }
     }
 
-    pub(super) fn approaches(
+    pub(super) fn trial(
         &self,
         change: &Change,
         request: &RouteHandoffRequest,
-    ) -> RouteHandoffApproaches {
-        let trial = RouteHandoffTrial {
+    ) -> RouteHandoffTrial {
+        RouteHandoffTrial {
             profile: self.revision.identity().stable_id(change.profile).unwrap(),
             station_window_mm: request.station_window_mm,
             rear_stations_mm: request.rear_stations_mm,
             speed_m_s: request.speed_m_s,
             limits: request.limits,
-        };
+        }
+    }
+
+    pub(super) fn approaches(
+        &self,
+        change: &Change,
+        request: &RouteHandoffRequest,
+    ) -> RouteHandoffApproaches {
+        let trial = self.trial(change, request);
         self.world
             .preview_route_handoff_approaches(
                 &change.binding,

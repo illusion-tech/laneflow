@@ -151,6 +151,7 @@ struct Travel {
     // 可能包含目标的各分段按行驶方向访问，在证明到达之前保留全部可能解。
     offsets: Option<[u64; 2]>,
     target: Option<I>,
+    refine_from_end: bool,
     tolerance_nm: u64,
     allowed_spread: I,
 }
@@ -166,6 +167,7 @@ impl Travel {
             distance: I::ZERO,
             offsets: None,
             target,
+            refine_from_end: false,
             tolerance_nm,
             // 按参数宽度分摊整条查询的误差，给加和、向外取整和逆查留出余量。
             allowed_spread: I::meters(tolerance_nm) / I::meters(length) * I::point(0.75),
@@ -215,7 +217,15 @@ impl Travel {
             && target.hi >= self.distance.lo
             && target.lo <= end.hi
         {
-            let local = ((target - self.distance) / speed)
+            // 正速度使段内根从首端、末端分别满足同一个积分速度界。
+            // 目标可能跨越分割点时，末端反推还能收紧即将保留到下一段的下界。
+            let mut local = (target - self.distance) / speed;
+            if self.refine_from_end {
+                local = local
+                    .intersect(h - (end - target) / speed)
+                    .ok_or(Failure::Projection)?;
+            }
+            let local = local
                 .intersect(I::ZERO.hull(h))
                 .ok_or(Failure::Projection)?;
             let [l, r] = nm(local)?.map(|x| span[0] + x.min(span[1] - span[0]));
@@ -416,7 +426,21 @@ impl SharedNetworkRevision {
             }
             let last = rear(&c, length, &mut work)?;
             let mut walk = Travel::new(length, tolerance_nm, sought);
-            let reached = walk.visit(&c, [0, length], [first, last], 0, &mut work)?;
+            let visit = |walk: &mut Travel, work: &mut Work| {
+                walk.visit(&c, [0, length], [first, last], 0, work)
+            };
+            let reached = match visit(&mut walk, &mut work) {
+                Err(Failure::TravelResolution) if sought.is_some() => {
+                    // 保持原本已成功的站位界和切点归属。单向逆查失证才重新遍历，
+                    // 利用两端行程界夹逼根；两次共用调用方的一份工作额度。
+                    walk = Travel {
+                        refine_from_end: true,
+                        ..Travel::new(length, tolerance_nm, sought)
+                    };
+                    visit(&mut walk, &mut work)?
+                }
+                result => result?,
+            };
             match target {
                 Target::Station(s) => {
                     let distance_nm = walk.distance_nm()?;

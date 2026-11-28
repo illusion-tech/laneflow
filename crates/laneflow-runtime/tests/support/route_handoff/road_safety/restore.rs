@@ -7,6 +7,91 @@ use laneflow_runtime::{
 use std::sync::OnceLock;
 
 #[test]
+fn restore_requires_stopping_room_before_the_remaining_handoff() {
+    let mut scene = Scene::new(1);
+    let change = scene.changer(0, "car", 83_750, 10_000);
+    let request = scene.request(&change);
+    scene
+        .world
+        .step_with_route_handoffs(TICK, &[request])
+        .unwrap();
+    let source_start = {
+        let bytes = encode_lfrs(&scene.world.capture_snapshot().unwrap());
+        let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+        let handoff = root.vehicles().get(0).handoffs().get(0);
+        handoff
+            .protections()
+            .iter()
+            .find(|p| p.role() == wire::HandoffProtectionRole::Source)
+            .unwrap()
+            .start_mm()
+    };
+    let profile = scene.world.vehicle(change.vehicle).unwrap().profile();
+    let route = scene
+        .world
+        .register_route(laneflow_runtime::RouteRegisterInput::new(
+            scene.lanes[0].clone(),
+        ))
+        .unwrap();
+    let spawn = |gap| VehicleSpawnInput::new(profile, route, 1, source_start - gap, 0);
+    for gap in [1_000, 2_499] {
+        assert_eq!(
+            scene.world.spawn_vehicle(spawn(gap)),
+            Err(SpawnError::StopConstraintUnsatisfiable)
+        );
+    }
+    let ordinary = scene.world.spawn_vehicle(spawn(2_500)).unwrap();
+    let bytes = encode_lfrs(&scene.world.capture_snapshot().unwrap());
+    let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+    let stopped = root
+        .vehicles()
+        .iter()
+        .find(|v| v.handoffs().is_empty())
+        .unwrap();
+    assert_eq!(stopped.progress_mm(), source_start - 2_500);
+    assert_eq!(stopped.speed_mm_s(), 0);
+    let offset = wire_table_field_offset(stopped._tab, wire::SnapshotVehicle::VT_PROGRESS_MM);
+    let restore = |trial: &[u8]| {
+        restore_lfrs(
+            trial,
+            scene.world.revision(),
+            scene.world.committed_source().clone(),
+            scene.world.config(),
+            scene.world.execution_config(),
+            SnapshotRestoreLimits::new(4 << 20, 4096),
+        )
+    };
+    for gap in [1_000, 2_499] {
+        let mut trial = bytes.clone();
+        trial[offset..offset + 4].copy_from_slice(&(source_start - gap).to_le_bytes());
+        assert_eq!(
+            restore(&trial).unwrap_err(),
+            SnapshotRestoreError::InvalidHandoffState
+        );
+    }
+    let mut world = restore(&bytes).unwrap().into_world();
+    for _ in 0..60 {
+        scene.world.step(TICK).unwrap();
+        world.step(TICK).unwrap();
+        assert_eq!(world.vehicle(ordinary), scene.world.vehicle(ordinary));
+        assert_eq!(
+            world.vehicle(change.vehicle),
+            scene.world.vehicle(change.vehicle)
+        );
+        if !scene.held(change.vehicle) {
+            break;
+        }
+    }
+    assert!(!scene.held(change.vehicle));
+    assert!(
+        world
+            .vehicle_route_handoffs(change.vehicle)
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
 fn restore_checks_the_body_on_both_lanes_after_the_front_changes_occurrence() {
     let revision = OnceLock::new();
     for changer_first in [true, false] {

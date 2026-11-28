@@ -6,6 +6,96 @@ use laneflow_runtime::{
 use std::num::NonZeroU32;
 
 #[test]
+fn four_millisecond_handoff_remains_located_until_release_and_replays_at_tick_640() {
+    let tick = TickInput::new(4);
+    let mut scene = Scene::at_interval(1, 4);
+    let change = scene.changer(0, "car", 44_000, 10_000);
+    let request = scene.request(&change);
+    let trial = scene.trial(&change, &request);
+    let preview = scene
+        .world
+        .preview_route_handoff_at(&change.binding, request.source_index, &trial)
+        .unwrap();
+    let query = |work| {
+        preview
+            .travel(
+                laneflow_runtime::RouteHandoffTravelTarget::DistanceMm(25_600),
+                NonZeroU32::MIN,
+                work,
+            )
+            .unwrap()
+    };
+    let located = query(request.limits.tracks);
+    let bounds = located.bounds.unwrap().rear.millimetres();
+    // 独立弧长积分给出起点后 25.312821 m。两端向外取整到毫米。
+    assert!(
+        bounds[0] <= request.rear_stations_mm[0] + 25_312
+            && bounds[1] >= request.rear_stations_mm[0] + 25_313
+    );
+    assert!(bounds[1] - bounds[0] <= 2);
+    assert_eq!(query(located.work), located);
+    let short = query(located.work - 1);
+    assert_eq!(short.work, located.work - 1);
+    assert_eq!(
+        short.bounds,
+        Err(laneflow_static_network::vehicle::Failure::WorkLimit)
+    );
+    scene
+        .world
+        .step_with_route_handoffs(tick, &[request])
+        .unwrap();
+    for i in 2..=639 {
+        scene
+            .world
+            .step(tick)
+            .unwrap_or_else(|e| panic!("tick {i}: {e}"));
+    }
+    assert_eq!(
+        scene
+            .world
+            .vehicle_route_handoffs(change.vehicle)
+            .next()
+            .unwrap()
+            .rear_travel_mm,
+        25_560
+    );
+    let mut replay = restore(&scene, NonZeroU32::new(3).unwrap());
+    for i in 640..=760 {
+        scene
+            .world
+            .step(tick)
+            .unwrap_or_else(|e| panic!("tick {i}: {e}"));
+        replay.step(tick).unwrap();
+        assert_eq!(
+            scene.world.vehicle(change.vehicle),
+            replay.vehicle(change.vehicle)
+        );
+        if i == 640 {
+            assert_eq!(
+                scene
+                    .world
+                    .vehicle_route_handoffs(change.vehicle)
+                    .next()
+                    .unwrap()
+                    .rear_travel_mm,
+                25_600
+            );
+        }
+        if !scene.held(change.vehicle) {
+            assert_eq!(i, 758);
+            assert!(
+                replay
+                    .vehicle_route_handoffs(change.vehicle)
+                    .next()
+                    .is_none()
+            );
+            return;
+        }
+    }
+    panic!("车尾未清空");
+}
+
+#[test]
 fn fast_terminal_tick_finishes_with_the_whole_continuation_and_replays() {
     let tick = TickInput::new(1000);
     let mut scene = Scene::at_interval(1, 1000);

@@ -1284,12 +1284,8 @@ impl crate::kernel::state::WorldState {
                         &required,
                     )
                     .ok()?;
-                    if entrants
-                        .side_blockers
-                        .iter()
-                        .flatten()
-                        .any(|b| b.reason == super::entrants::RouteHandoffEntrantReason::Occupied)
-                    {
+                    // 恢复的是整段剩余保护。源、目标及下游来车均须仍有停车余量。
+                    if entrants.side_blockers.iter().any(Option::is_some) {
                         return None;
                     }
                     let disjoint = self.committed.handoffs[..i].iter().all(|other| {

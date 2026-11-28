@@ -193,7 +193,8 @@ fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
             let short = marks(&reversed, 1);
             assert_eq!(short.distances, Err(Failure::WorkLimit));
             assert_eq!(short.work, 1);
-            for d in [10 * MM, 15_145] {
+            // 25.6 米附近的累计距离可横跨积分分段点，两侧候选都须落入 1 毫米误差界。
+            for d in [10 * MM, 15_145, 25_599, 25_600, 25_601] {
                 let target = HandoffTravelTarget::DistanceMm(d);
                 let inverse = query(target, TRACK_WORK_LIMIT);
                 let result = inverse.bounds.unwrap_or_else(|_| panic!("{inverse:?}"));

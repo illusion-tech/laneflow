@@ -155,6 +155,10 @@ fn check_able_to_yield(speed: u32, gap: u32) {
             );
             return;
         }
+        scene
+            .world
+            .capture_snapshot()
+            .expect("合法目标后车正在制动时仍能捕获");
         let prior = scene.world.vehicle(follower).unwrap().speed_mm_s();
         scene.world.step(TICK).unwrap_or_else(|e| {
             panic!(
